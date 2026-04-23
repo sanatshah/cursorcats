@@ -1113,6 +1113,8 @@
       folder,
       prompt,
       catId,
+      /** 'sdk' | 'ide' */
+      kind: (meta && meta.kind) || 'sdk',
       finished: false,
       finishing: false,
       finishedOrder: null,
@@ -1235,6 +1237,9 @@
     if (!ev || ev.catId == null) return;
     const id = String(ev.catId);
     const cat = cats.find((c) => c.catId != null && String(c.catId) === id);
+    if (cat && cat.kind === 'ide') {
+      return;
+    }
     if (cat && cat.finished) return;
     if (!cat) {
       pendingFinishes.set(id, ev);
@@ -1254,7 +1259,7 @@
       const spriteSource = buildHueSprite(img);
       const cat = makeCat(manifest, spriteSource, payload, hitbox);
       cats.push(cat);
-      if (cat.catId && pendingFinishes.has(String(cat.catId))) {
+      if (cat.kind !== 'ide' && cat.catId && pendingFinishes.has(String(cat.catId))) {
         const p = pendingFinishes.get(String(cat.catId));
         pendingFinishes.delete(String(cat.catId));
         if (p) applyAgentFinishToCat(cat, p);

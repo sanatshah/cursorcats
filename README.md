@@ -1,15 +1,6 @@
-```
-  ____                              
- / ___|___  _ __ ___  _____   _____ 
-| |   / _ \| '__/ _ \/ _ \ \ / / _ \
-| |__| (_) | | | (_) | (_) \ V /  __/
- \____\___/|_|  \___/ \___/ \_/ \___|
-  ____      _        
- / ___|__ _| |_ __ _ 
-| |   / _` | __/ _` |
-| |__| (_| | || (_| |
- \____\__,_|\__\__,_| 
-```
+<p align="center">
+  <img src="assets/repo-banner.png" alt="Cursor Cats" width="100%" />
+</p>
 
 # Cursor Cats
 
@@ -99,6 +90,16 @@ npm run dev
 
 When the agent run finishes, that cat is removed from the overlay.
 
+### Cursor IDE / Agent window cats (hooks plugin)
+
+Cursor Cats can mirror **interactive** Agent Chat sessions in the Cursor IDE (not background/cloud agents): when you start a composer session, a cat appears; when the session ends, it disappears. **`CURSOR_API_KEY` is not required** for this—only for **New Cursor Cat** SDK runs above.
+
+On startup, the app installs a **local Cursor plugin** from bundled assets into `~/.cursor/plugins/local/cursorcats` (in dev it symlinks the repo’s `assets/cursor-plugin`; in production it copies). Hook scripts notify the running Cursor Cats app over `127.0.0.1` using `~/.cursorcats/ipc.json` (port + auth token).
+
+**First time (or after plugin updates):** reload Cursor so hooks load — Command Palette → **Developer: Reload Window** (or restart Cursor). See also [Test plugins locally](https://cursor.com/docs/plugins#test-plugins-locally).
+
+Clicking one of these cats **activates the Cursor app** (brings it to the front). It does not open Cursor Cats’ conversation window.
+
 ## Add your cat art
 
 1. Place a horizontal strip / grid **PNG** under `assets/cats/` (e.g. `assets/cats/my-cat.png`).
@@ -111,7 +112,9 @@ Until `sprite.json` points to a real image that loads, the window stays empty (f
 ## Development
 
 - **electron-vite**: `npm run dev` — Vite HMR for the renderer; main/preload changes restart Electron.
-- `src/main/index.js` — transparent full work-area window, click-through, IPC for assets, tray, global quit shortcut, `app.dock.hide()` on macOS.
+- `src/main/index.js` — transparent full work-area window, click-through, IPC for assets, tray, global quit shortcut, `app.dock.hide()` on macOS; local Cursor plugin install, hook HTTP server, IDE session cats.
+- `src/main/plugin-installer.js`, `src/main/hook-server.js`, `src/main/ide-sessions.js` — plugin sync to `~/.cursor/plugins/local/cursorcats`, hook bridge, per-session IDE cat state.
+- `assets/cursor-plugin/` — plugin manifest, `hooks.json`, and `sessionStart` / `sessionEnd` hook scripts.
 - `src/preload/index.js` — exposes `readTextFile` / `getAssetFileUrl` to the renderer.
 - `src/renderer/` — canvas sprite animation and roam logic (`index.html`, `src/renderer.js`, `src/styles.css`).
 - Built output lives in `out/` (`npm run build`).

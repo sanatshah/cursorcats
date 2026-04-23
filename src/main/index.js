@@ -14,6 +14,7 @@ const fs = require('fs');
 const os = require('os');
 const { pathToFileURL } = require('url');
 const { randomUUID } = require('crypto');
+const { spawn } = require('child_process');
 const {
   startAgentForCat,
   cancelAllAgents,
@@ -22,6 +23,13 @@ const {
   dismissAgent,
   sendFollowup,
 } = require('./agents');
+const { ensureCursorPluginInstalled } = require('./plugin-installer');
+const { startHookServer } = require('./hook-server');
+const {
+  handleIdeSessionStart,
+  handleIdeSessionEnd,
+  removeIdeCatIfPresent,
+} = require('./ide-sessions');
 
 function assertPathInsideApp(relPath) {
   const root = path.resolve(app.getAppPath());
@@ -35,6 +43,8 @@ function assertPathInsideApp(relPath) {
 let mainWindow;
 let modalWindow;
 let conversationWindow;
+/** @type {null | (() => void)} */
+let closeHookServer = null;
 /** When true, the overlay is accepting mouse (cursor over a cat). */
 let mainWindowMouseable = false;
 let lastCatScreenRects = [];
@@ -146,6 +156,21 @@ function createWindow() {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+  }
+}
+
+/** Best-effort: bring Cursor to the foreground (no workspace/deeplink; see plan). */
+function activateCursorApp() {
+  try {
+    if (process.platform === 'darwin') {
+      spawn('open', ['-a', 'Cursor'], { detached: true, stdio: 'ignore' }).unref();
+    } else if (process.platform === 'win32') {
+      spawn('cursor', [], { detached: true, stdio: 'ignore', shell: true }).unref();
+    } else {
+      spawn('cursor', [], { detached: true, stdio: 'ignore' }).unref();
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -557,7 +582,13 @@ ipcMain.on('cat-screen-rects', (_event, rects) => {
 });
 
 ipcMain.on('open-cat-conversation', (_e, { catId } = {}) => {
-  if (catId) openConversationWindow(String(catId));
+  if (!catId) return;
+  const id = String(catId);
+  if (id.startsWith('ide:')) {
+    activateCursorApp();
+    return;
+  }
+  openConversationWindow(id);
 });
 
 ipcMain.on('close-conversation-window', () => {
@@ -568,7 +599,15 @@ ipcMain.on('close-conversation-window', () => {
 
 ipcMain.on('dismiss-cat', async (_e, { catId } = {}) => {
   if (!catId) return;
-  await dismissAgent(String(catId), { getMainWindow: () => mainWindow, log: console });
+  const id = String(catId);
+  if (id.startsWith('ide:')) {
+    removeIdeCatIfPresent(id, { getMainWindow: () => mainWindow, log: console });
+    if (conversationWindow && !conversationWindow.isDestroyed()) {
+      conversationWindow.close();
+    }
+    return;
+  }
+  await dismissAgent(id, { getMainWindow: () => mainWindow, log: console });
   if (conversationWindow && !conversationWindow.isDestroyed()) {
     conversationWindow.close();
   }
@@ -576,6 +615,9 @@ ipcMain.on('dismiss-cat', async (_e, { catId } = {}) => {
 
 ipcMain.on('agent-followup', (_e, { catId, text } = {}) => {
   if (!catId) return;
+  if (String(catId).startsWith('ide:')) {
+    return;
+  }
   sendFollowup(String(catId), text, { getMainWindow: () => mainWindow, log: console });
 });
 
@@ -602,6 +644,25 @@ app.whenReady().then(() => {
     app.dock.hide();
   }
   createTray();
+
+  try {
+    ensureCursorPluginInstalled({ log: console });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[cursorcats] plugin install', e);
+  }
+  void startHookServer({
+    onIdeSessionStart: (p) => handleIdeSessionStart(p, { getMainWindow: () => mainWindow, log: console }),
+    onIdeSessionEnd: (p) => handleIdeSessionEnd(p, { getMainWindow: () => mainWindow, log: console }),
+    log: console,
+  })
+    .then((h) => {
+      closeHookServer = h && h.closeSync ? h.closeSync : null;
+    })
+    .catch((e) => {
+      // eslint-disable-next-line no-console
+      console.warn('[cursorcats] hook server failed to start', e);
+    });
 
   setOnConversationPushed(({ catId: _id }) => {
     if (conversationWindow && !conversationWindow.isDestroyed()) {
@@ -659,6 +720,15 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  if (typeof closeHookServer === 'function') {
+    try {
+      closeHookServer();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[cursorcats] hook server cleanup', e);
+    }
+    closeHookServer = null;
+  }
   cancelAllAgents();
   globalShortcut.unregisterAll();
 });

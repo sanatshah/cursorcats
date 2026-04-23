@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": "node ./hooks/sessionStart.js" }],
+    "sessionEnd": [{ "command": "node ./hooks/sessionEnd.js" }]
+  }
+}
