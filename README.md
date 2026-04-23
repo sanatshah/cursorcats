@@ -43,6 +43,8 @@ node bin/cursorcats.js
 
 If you see *Missing built main process*, run `npm run build` in the package root (or reinstall so `prepare` can run).
 
+While the app is running, use **Cmd+Shift+C** (macOS) or **Ctrl+Shift+C** (Windows/Linux) to add a new Cursor Cat.
+
 ### Usage
 
 - **Launch**: `cursorcats` (or `npx github:fieldsphere/cursor-cats`).
