@@ -2,6 +2,8 @@
 (function () {
   const MARGIN = 8;
   const BOTTOM_MARGIN = 0; // cats walk flush on the bottom edge of the window
+  /** When false, cats stay on the overlay floor only (no climbing onto other app windows). */
+  const PERCH_ON_OTHER_WINDOWS = false;
   const WALK_SPEED = 60; // px/s
   const SPRINT_SPEED = 220; // px/s (~3.7x walk)
   const SPRINT_CHANCE = 0.15;
@@ -34,11 +36,11 @@
   const PERCH_BOUNDS_DRIFT = 24;
   /** Block ground interactions while commuting / on another window. */
   const INTERACT_BLOCK_MAX = 1e9;
-  /** After this long sitting in the finished slot, a cat pops back up to perch on the active window and reshow its "finished" bubble. */
+  /** After this long roaming on the floor finished, a cat pops back up to perch on the active window and reshow its "finished" bubble. */
   const FINISH_RESHOW_INTERVAL_MS = 60 * 1000;
   /** Backoff between reshow attempts when the active window can't be used (missing, too narrow). */
   const FINISH_RESHOW_RETRY_MS = 4000;
-  /** How long a reshowing cat sits on top of the active window before falling / walking back to its slot. */
+  /** How long a reshowing cat sits on top of the active window before falling back to the floor. */
   const FINISH_RESHOW_PERCH_MIN_MS = 4000;
   const FINISH_RESHOW_PERCH_MAX_MS = 7000;
 
@@ -46,7 +48,7 @@
   const ctx = canvas.getContext('2d', { alpha: true });
   const bubbleLayer = document.getElementById('bubble-layer');
 
-  /** Shown in a bubble when an agent cat reaches the finished parking slot (random pick per cat). */
+  /** Shown in a bubble when an agent cat completes its task (random pick per cat). */
   const FINISH_BUBBLE_MESSAGES = [
     "I'm finished — time for a nap.",
     'All done. Got treats?',
@@ -88,7 +90,7 @@
     let active = 0;
     let inReview = 0;
     for (const c of cats) {
-      if (c.finished || c.finishing || c.finishReshowing) inReview += 1;
+      if (c.finished || c.finishReshowing) inReview += 1;
       else active += 1;
     }
     return { active, inReview };
@@ -189,9 +191,6 @@
 
   function getHorizontalRange(cat) {
     const { w } = getDrawSize(cat);
-    if (cat.finished) {
-      return { min: cat.x, max: cat.x };
-    }
     if (cat.state === 'perched' && cat.perch) {
       if (cat.perchLeaving) {
         return { min: -2 * w, max: Math.max(0, canvas.clientWidth) + w };
@@ -444,7 +443,6 @@
 
   function clampPos(cat) {
     if (!cat.manifest || !cat.spriteSource) return;
-    if (cat.finished) return;
     if (cat.state === 'climbUp' || cat.state === 'fallOff') return;
     const { min, max } = getHorizontalRange(cat);
     cat.x = Math.min(max, Math.max(min, cat.x));
@@ -459,10 +457,6 @@
 
   /** Random full-width dash toward the far edge; clears sprinting if roll fails. */
   function maybeStartSprint(cat) {
-    if (cat.finished) {
-      cat.sprinting = false;
-      return;
-    }
     if (
       cat.state === 'perched' ||
       cat.state === 'walkToPerch' ||
@@ -491,33 +485,6 @@
     cat.walkTargetY = getBottomY(cat);
   }
 
-  const FINISHED_GAP = 4;
-  /** Sprint speed used when a finished cat runs to its bottom-right parking slot. */
-  const FINISH_RUN_SPEED = SPRINT_SPEED;
-
-  /** Park finished agent cats along the bottom-right; cats still running there get an updated target. */
-  function relayoutFinishedCats() {
-    const list = cats
-      .filter((c) => (c.finished || c.finishing) && !c.finishReshowing)
-      .sort((a, b) => (a.finishedOrder || 0) - (b.finishedOrder || 0));
-    if (list.length === 0) return;
-    const W = canvas.clientWidth;
-    let fromRight = MARGIN;
-    for (let i = list.length - 1; i >= 0; i--) {
-      const cat = list[i];
-      const { w } = getDrawSize(cat);
-      const slotX = Math.max(MARGIN, W - MARGIN - w - fromRight);
-      if (cat.finished) {
-        cat.x = slotX;
-        cat.y = getBottomY(cat);
-      } else {
-        cat.walkTargetX = slotX;
-        cat.walkTargetY = getBottomY(cat);
-      }
-      fromRight += w + FINISHED_GAP;
-    }
-  }
-
   function setupCanvasSize() {
     dpr = window.devicePixelRatio || 1;
     const w = window.innerWidth;
@@ -529,9 +496,8 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
     for (const cat of cats) {
-      if (!cat.finished) clampPos(cat);
+      clampPos(cat);
     }
-    relayoutFinishedCats();
   }
 
   function setAnim(cat, name, flip) {
@@ -581,6 +547,7 @@
   }
 
   function sendCatToPerch(cat, b, ts) {
+    if (!PERCH_ON_OTHER_WINDOWS) return false;
     if (!cat || !b) return false;
     if (cat.finished) return false;
     if (cat.state !== 'idle') return false;
@@ -628,6 +595,7 @@
 
   /** Every FINISH_RESHOW_INTERVAL_MS, finished cats jump back up to the active window and reshow their message. */
   function maybeStartFinishReshow(cat, ts) {
+    if (!PERCH_ON_OTHER_WINDOWS) return;
     if (!cat.finished || cat.finishReshowing || cat.finishReshowPending) return;
     if (cat.finishedAt == null) return;
     if (ts - cat.finishedAt < FINISH_RESHOW_INTERVAL_MS) return;
@@ -644,7 +612,7 @@
         const started = startFinishReshow(cat, b, performance.now());
         if (started) {
           // Reset the clock so the next reshow fires FINISH_RESHOW_INTERVAL_MS
-          // after the cat settles back in its slot (finishedAt stamp).
+          // after the cat settles back on the floor (finishedAt stamp).
           cat.nextFinishReshowAttemptAt = 0;
         }
       })
@@ -654,6 +622,7 @@
   }
 
   async function maybeRequestPerch(cat, ts) {
+    if (!PERCH_ON_OTHER_WINDOWS) return;
     if (cat.finished) return;
     if (Math.random() >= PERCH_CHANCE_PER_IDLE) return;
     if (!window.cursorcats || typeof window.cursorcats.getFrontmostWindowBounds !== 'function') return;
@@ -669,6 +638,7 @@
   }
 
   async function nudgeForStableWindow() {
+    if (!PERCH_ON_OTHER_WINDOWS) return;
     if (!window.cursorcats || typeof window.cursorcats.getFrontmostWindowInfo !== 'function') return;
     try {
       const info = await window.cursorcats.getFrontmostWindowInfo();
@@ -745,47 +715,13 @@
 
   function updateCat(cat, dt, ts) {
     if (!cat.spriteSource || !cat.manifest) return;
-    if (cat.finished) {
-      cat.y = getBottomY(cat);
-      if (getAnimDef(cat, 'idle')) {
-        setAnim(cat, 'idle', false);
-        advanceAnim(cat, dt);
-      }
+    if (
+      cat.finished &&
+      !cat.finishReshowing &&
+      (cat.state === 'idle' || cat.state === 'walk') &&
+      !cat.perch
+    ) {
       maybeStartFinishReshow(cat, ts);
-      return;
-    }
-    if (cat.finishing) {
-      cat.y = getBottomY(cat);
-      const dx = cat.walkTargetX - cat.x;
-      const dist = Math.abs(dx);
-      const move = FINISH_RUN_SPEED * dt;
-      if (dist < 0.5 || move >= dist) {
-        cat.x = cat.walkTargetX;
-        cat.finishing = false;
-        cat.finished = true;
-        cat.sprinting = false;
-        cat.state = 'idle';
-        cat.idleEndAt = 1e12;
-        cat.finishedAt = ts;
-        cat.nextFinishReshowAttemptAt = ts + FINISH_RESHOW_INTERVAL_MS;
-        cat.finishBubbleText =
-          FINISH_BUBBLE_MESSAGES[
-            Math.floor(Math.random() * FINISH_BUBBLE_MESSAGES.length)
-          ];
-        ensureFinishBubbleDom(cat);
-        if (cat.kind === 'ide') {
-          scheduleIdeCatRemoval(cat);
-        }
-        return;
-      }
-      cat.x += (dx > 0 ? 1 : -1) * move;
-      cat.facingRight = dx >= 0;
-      const mv = getAnimDef(cat, 'run')
-        ? { key: 'run', flip: !cat.facingRight }
-        : pickWalkAnim(cat, cat.facingRight);
-      setAnim(cat, mv.key, mv.flip);
-      advanceAnim(cat, dt);
-      return;
     }
     if (cat.state === 'fallOff' && cat.fall) {
       const ax = (cat.fall.vx || 0) * dt;
@@ -814,15 +750,14 @@
         if (cat.finishReshowing) {
           cat.finishReshowing = false;
           destroyFinishBubble(cat);
-          cat.finishing = true;
-          cat.finished = false;
-          cat.state = 'runToFinish';
-          cat.sprinting = true;
-          cat.idleEndAt = 1e12;
+          cat.finished = true;
+          cat.finishing = false;
+          cat.state = 'idle';
+          cat.sprinting = false;
+          cat.idleEndAt = ts + rand(1000, 3000);
+          cat.finishedAt = ts;
+          cat.nextFinishReshowAttemptAt = ts + FINISH_RESHOW_INTERVAL_MS;
           cat.canInteractAt = ts + INTERACT_BLOCK_MAX;
-          cat.walkTargetX = cat.x;
-          cat.walkTargetY = getBottomY(cat);
-          relayoutFinishedCats();
         }
       }
       return;
@@ -1122,7 +1057,6 @@
       updateCat(cat, dt, ts);
       renderCat(cat);
     }
-    relayoutFinishedCats();
     syncFinishBubbles();
     postCatScreenRects();
     requestAnimationFrame(gameLoop);
@@ -1384,25 +1318,34 @@
     if (cat.finishedOrder == null) {
       cat.finishedOrder = nextFinishedOrder++;
     }
-    cat.finishing = true;
-    cat.finished = false;
+    cat.finishing = false;
+    cat.finished = true;
     cat.finishReshowing = false;
     cat.finishReshowPending = false;
-    cat.nextFinishReshowAttemptAt = 0;
-    cat.state = 'runToFinish';
-    cat.sprinting = true;
+    const nowTs = performance.now();
+    cat.finishedAt = nowTs;
+    cat.nextFinishReshowAttemptAt = nowTs + FINISH_RESHOW_INTERVAL_MS;
     cat.perch = null;
     cat.perchLeaving = false;
     cat.perchSub = 'idle';
     cat.climb = null;
     cat.fall = null;
     cat.y = getBottomY(cat);
+    clampPos(cat);
+    cat.state = 'idle';
+    cat.sprinting = false;
+    cat.idleEndAt = nowTs + rand(1000, 3000);
     cat.walkTargetX = cat.x;
     cat.walkTargetY = getBottomY(cat);
-    cat.idleEndAt = 1e12;
-    cat.canInteractAt = performance.now() + INTERACT_BLOCK_MAX;
+    cat.canInteractAt = nowTs + INTERACT_BLOCK_MAX;
     destroyFinishBubble(cat);
     detachPartnerIfInteracting(cat);
+    cat.finishBubbleText =
+      FINISH_BUBBLE_MESSAGES[Math.floor(Math.random() * FINISH_BUBBLE_MESSAGES.length)];
+    ensureFinishBubbleDom(cat);
+    if (cat.kind === 'ide') {
+      scheduleIdeCatRemoval(cat);
+    }
   }
 
   function reactivateCat(catId) {
@@ -1436,7 +1379,6 @@
     cat.idleEndAt = nowTs + rand(200, 600);
     cat.y = getBottomY(cat);
     clampPos(cat);
-    relayoutFinishedCats();
     reportCatCountsIfChanged();
   }
 
@@ -1450,7 +1392,6 @@
       return;
     }
     applyAgentFinishToCat(cat, ev);
-    relayoutFinishedCats();
     reportCatCountsIfChanged();
   }
 
@@ -1473,7 +1414,6 @@
         pendingFinishes.delete(String(cat.catId));
         if (p) {
           applyAgentFinishToCat(cat, p);
-          relayoutFinishedCats();
         }
       }
     } catch (e) {
@@ -1514,12 +1454,11 @@
             clearIdeRemovalTimer(cats[idx]);
             destroyFinishBubble(cats[idx]);
             cats.splice(idx, 1);
-            relayoutFinishedCats();
             reportCatCountsIfChanged();
           }
         });
       }
-      if (typeof window.cursorcats.getFrontmostWindowInfo === 'function') {
+      if (PERCH_ON_OTHER_WINDOWS && typeof window.cursorcats.getFrontmostWindowInfo === 'function') {
         startStabilityNudgeLoop();
       }
       canvas.addEventListener('click', (e) => {
