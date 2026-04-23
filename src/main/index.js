@@ -400,13 +400,13 @@ function createTray() {
   const iconPng = path.join(app.getAppPath(), 'assets', 'icon.png');
   let image;
   let imageIsEmpty = false;
-  if (fs.existsSync(trayPng)) {
-    // Electron auto-picks up assets/tray@2x.png for retina when it's siblings.
-    image = nativeImage.createFromPath(trayPng);
-  } else if (fs.existsSync(iconPng)) {
+  if (fs.existsSync(iconPng)) {
     const source = nativeImage.createFromPath(iconPng);
     // macOS menu bar icons render at ~22pt; resizing avoids a giant blurry icon.
     image = source.isEmpty() ? source : source.resize({ width: 22, height: 22, quality: 'best' });
+  } else if (fs.existsSync(trayPng)) {
+    // Electron auto-picks up assets/tray@2x.png for retina when it's siblings.
+    image = nativeImage.createFromPath(trayPng);
   } else {
     // 1×1 transparent PNG so Tray always has a valid image
     const onePx =

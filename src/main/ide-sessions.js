@@ -11,14 +11,19 @@ const bySession = new Map();
  */
 function handleIdeSessionStart(payload, { getMainWindow, log = console } = {}) {
   const sessionId = payload && (payload.session_id != null ? String(payload.session_id) : null);
+  const wr = Array.isArray(payload && payload.workspace_roots)
+    ? payload.workspace_roots.map((x) => String(x))
+    : [];
+  log.log('[cursorcats] handleIdeSessionStart session=', sessionId, 'roots=', wr);
   if (!sessionId) {
+    log.log('[cursorcats] ide-session-start dropped: no session_id');
     return;
   }
   if (bySession.has(sessionId)) {
+    log.log('[cursorcats] ide-session-start dropped: duplicate sessionId=', sessionId);
     return;
   }
   const catId = `ide:${sessionId}`;
-  const wr = Array.isArray(payload.workspace_roots) ? payload.workspace_roots.map((x) => String(x)) : [];
   bySession.set(sessionId, { catId, workspaceRoots: wr, startedAt: Date.now() });
   const win = getMainWindow && getMainWindow();
   if (win && !win.isDestroyed()) {
@@ -31,9 +36,12 @@ function handleIdeSessionStart(payload, { getMainWindow, log = console } = {}) {
         workspace: wr[0] || '',
         prompt: '',
       });
+      log.log('[cursorcats] spawn-cat sent catId=', catId);
     } catch (e) {
       log.warn('[cursorcats] spawn-cat (ide) failed', e);
     }
+  } else {
+    log.log('[cursorcats] ide-session-start dropped: no main window');
   }
 }
 
@@ -43,21 +51,47 @@ function handleIdeSessionStart(payload, { getMainWindow, log = console } = {}) {
  */
 function handleIdeSessionEnd(payload, { getMainWindow, log = console } = {}) {
   const sessionId = payload && (payload.session_id != null ? String(payload.session_id) : null);
+  log.log('[cursorcats] handleIdeSessionEnd session=', sessionId);
   if (!sessionId) {
+    log.log('[cursorcats] ide-session-end dropped: no session_id');
     return;
   }
   const rec = bySession.get(sessionId);
   if (!rec) {
+    log.log('[cursorcats] ide-session-end dropped: unknown sessionId=', sessionId);
     return;
   }
-  bySession.delete(sessionId);
+  // Keep `bySession` until the renderer calls `dismissCat` (auto after finish delay or user).
   const win = getMainWindow && getMainWindow();
   if (win && !win.isDestroyed()) {
-    try {
-      win.webContents.send('remove-cat', { catId: rec.catId });
-    } catch (e) {
-      log.warn('[cursorcats] remove-cat (ide) failed', e);
+    const p = payload && typeof payload === 'object' ? payload : {};
+    const status =
+      p.final_status != null
+        ? String(p.final_status)
+        : p.reason != null
+          ? String(p.reason)
+          : 'done';
+    let result = '';
+    if (p.error_message != null && String(p.error_message).length > 0) {
+      result = String(p.error_message);
+    } else if (p.reason != null && String(p.reason).length > 0) {
+      result = String(p.reason);
     }
+    const durationMs =
+      typeof p.duration_ms === 'number' && Number.isFinite(p.duration_ms) ? p.duration_ms : undefined;
+    try {
+      win.webContents.send('agent-finished', {
+        catId: rec.catId,
+        status,
+        result,
+        ...(durationMs !== undefined ? { durationMs } : {}),
+      });
+      log.log('[cursorcats] agent-finished (ide session end) catId=', rec.catId);
+    } catch (e) {
+      log.warn('[cursorcats] agent-finished (ide) failed', e);
+    }
+  } else {
+    log.log('[cursorcats] ide-session-end dropped: no main window');
   }
 }
 

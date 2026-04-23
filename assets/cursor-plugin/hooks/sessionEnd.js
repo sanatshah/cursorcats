@@ -2,7 +2,7 @@
 'use strict';
 
 const fs = require('fs');
-const { notify } = require('./notify.js');
+const { notify, appendHookDebug } = require('./notify.js');
 
 let raw = '';
 try {
@@ -26,13 +26,14 @@ if (data.is_background_agent === true) {
   process.exit(0);
 }
 
-notify('ide-session-end', {
+void notify('ide-session-end', {
   session_id: sessionId,
   reason: data.reason,
   duration_ms: data.duration_ms,
   is_background_agent: data.is_background_agent,
   final_status: data.final_status,
   error_message: data.error_message,
+}).then(() => {
+  appendHookDebug(`PRE_EXIT sessionEnd session_id=${sessionId}`);
+  process.exit(0);
 });
-
-process.exit(0);

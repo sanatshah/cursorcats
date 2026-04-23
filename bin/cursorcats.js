@@ -19,6 +19,17 @@ if (process.argv[2] === 'add-hooks') {
   process.exit(0);
 }
 
+if (process.argv[2] === 'remove-hooks') {
+  try {
+    const { removeHooks } = require(path.join(pkgRoot, 'scripts', 'add-hooks.js'));
+    removeHooks(pkgRoot, { log: console.log.bind(console) });
+  } catch (e) {
+    console.error('[cursorcats] remove-hooks failed:', (e && e.message) || e);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
 if (!process.env.CURSOR_API_KEY) {
   console.error(
     '[cursorcats] Warning: CURSOR_API_KEY is not set. New Cursor Cat agents will not run; set it before launching if you use that feature.'

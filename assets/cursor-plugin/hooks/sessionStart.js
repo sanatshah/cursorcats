@@ -2,7 +2,7 @@
 'use strict';
 
 const fs = require('fs');
-const { notify } = require('./notify.js');
+const { notify, appendHookDebug } = require('./notify.js');
 
 let raw = '';
 try {
@@ -28,13 +28,16 @@ if (!sessionId) {
 }
 
 const workspace_roots = Array.isArray(data.workspace_roots) ? data.workspace_roots : [];
-notify('ide-session-start', {
+void notify('ide-session-start', {
   session_id: sessionId,
   conversation_id: data.conversation_id != null ? String(data.conversation_id) : sessionId,
   workspace_roots,
   composer_mode: data.composer_mode,
   cursor_version: data.cursor_version,
   user_email: data.user_email,
+}).then(() => {
+  appendHookDebug(
+    `PRE_EXIT sessionStart session_id=${sessionId} workspace_first=${workspace_roots[0] || '(none)'}`
+  );
+  process.exit(0);
 });
-
-process.exit(0);

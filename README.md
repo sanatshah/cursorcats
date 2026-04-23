@@ -8,14 +8,14 @@ Your desktop is lonely. Fix it. **Cursor Cats** lets tiny pixel cats prowl acros
 
 ## Cursor Agent SDK
 
-Every cat is backed by a Cursor Agent. Here's how each type plugs into the SDK:
+Cats on your desktop represent Cursor agent work in two different ways:
 
 - **New Cursor Cat (SDK-backed)**: spawning a cat from the modal creates a [`@cursor/february`](https://www.npmjs.com/package/@cursor/february) `Agent` via `Agent.create({ apiKey, model: { id: 'composer-2' }, local: { cwd: folder } })` rooted at the folder you pick. The prompt is sent with `agent.send(prompt)`, and the returned `Run`'s `run.stream()` is drained into a per-cat conversation log (user / assistant / thinking / tool_call / status events). `run.wait()` resolves the final status and result, which flips the cat into "in review". Follow-up messages reuse the same `Agent` instance with another `agent.send(text)` call. Requires `CURSOR_API_KEY`. See `src/main/agents.js`.
-- **IDE session cat (hook-bridged)**: cats that mirror **interactive Agent Chat sessions** inside the Cursor IDE. User-level Cursor hooks under `~/.cursor/hooks.json` run `sessionStart` / `sessionEnd` scripts that POST to a loopback HTTP server in the app (auth + port via `~/.cursorcats/ipc.json`). A cat appears when a Cursor composer session starts and disappears when it ends, with no API key required since Cursor runs the agent. Clicking the cat activates the Cursor app. Install hooks once with **`cursorcats add-hooks`** (see below). Hook sources live in `assets/cursor-plugin/hooks/`; see `src/main/hook-server.js` and `src/main/ide-sessions.js`.
+- **IDE session cat (hook-bridged)**: cats that mirror **interactive Agent Chat sessions** inside the Cursor IDE. User-level Cursor hooks under `~/.cursor/hooks.json` run `sessionStart` / `sessionEnd` commands that load scripts from `~/.cursor/hooks/cursorcats/`; those scripts POST to a loopback HTTP server in the app (port + auth token in `~/.cursorcats/ipc.json`, written when the app starts). A cat appears when a foreground Cursor composer session starts (background-agent sessions are ignored). When the session ends, the cat plays the same “finished” flow as SDK cats, then the overlay removes it automatically after a short delay; no API key is required because Cursor runs the agent. Clicking the cat activates the Cursor app. Install hooks once with **`cursorcats add-hooks`** (see below); use **`cursorcats remove-hooks`** to strip those entries and delete the copied scripts. Hook sources live in `assets/cursor-plugin/hooks/` (including `notify.js`, which the session hooks require); see `src/main/hook-server.js` and `src/main/ide-sessions.js`.
 
 ## Cursor Cats CLI
 
-The published command is **`cursorcats`** (see `bin` in `package.json`). It starts Electron with the built main process from `out/main/index.js`. The first install runs **`prepare`**, which runs `electron-vite build`.
+The published command is **`cursorcats`** (see `bin` in `package.json`). It starts Electron with the built main process from `out/main/index.js`. Installing the package runs **`prepare`**, which runs `electron-vite build` (so `out/` exists before first launch).
 
 ### Install
 
@@ -46,7 +46,7 @@ If you see *Missing built main process*, run `npm run build` in the package root
 ### Usage
 
 - **Launch**: `cursorcats` (or `npx github:fieldsphere/cursor-cats`).
-- **IDE session cats (Cursor hooks)**: run **`cursorcats add-hooks`** once. It copies the hook scripts into `~/.cursor/hooks/cursorcats/` and merges `sessionStart` / `sessionEnd` entries into **`~/.cursor/hooks.json`** (existing hook entries are kept). Reload Cursor (**Developer: Reload Window**) afterward. Re-run after upgrading cursorcats so the copied scripts stay in sync.
+- **IDE session cats (Cursor hooks)**: run **`cursorcats add-hooks`** once. It copies `sessionStart.js`, `sessionEnd.js`, and `notify.js` into `~/.cursor/hooks/cursorcats/` and merges `sessionStart` / `sessionEnd` entries into **`~/.cursor/hooks.json`** (other hook entries are preserved). Reload Cursor (**Developer: Reload Window**) afterward. Re-run **`add-hooks`** after upgrading cursorcats so the copied files stay in sync. To uninstall: **`cursorcats remove-hooks`** removes the cursorcats hook commands from `hooks.json` and deletes `~/.cursor/hooks/cursorcats/` (then reload Cursor again).
 - **Cursor API key** (for **New Cursor Cat** agent runs): set before starting:
 
 ```bash
@@ -56,14 +56,14 @@ cursorcats
 
 Without `CURSOR_API_KEY`, the app still runs; the CLI prints a warning and **New Cursor Cat** agents will not run.
 
-The subcommand **`add-hooks`** is handled by the CLI itself (see `bin/cursorcats.js`). Any other extra arguments are passed through to Electron.
+The subcommands **`add-hooks`** and **`remove-hooks`** are handled by the CLI itself (see `bin/cursorcats.js`). Any other arguments are passed through to Electron.
 
 ### Quit
 
-- **Menu bar (macOS) / tray**: right-click the tray icon → **Quit** (if the tray image looks like a tiny placeholder, the menu still works).
+- **Tray**: right-click (or left-click, depending on the platform) the tray icon → **Quit**. On macOS the tray can also show live cat counts next to the icon; if the tray image looks like a tiny placeholder, the menu still works.
 - **Keyboard**: **Cmd+Q** (macOS) or **Ctrl+Q** (Windows/Linux).
 
-On macOS the Dock icon is hidden; use the tray or the shortcut to exit.
+On macOS the Dock icon is hidden while the overlay is running; use the tray or the shortcut to exit. Most tray and shortcut behavior is tuned for macOS; Windows and Linux should still get the tray menu and **Ctrl+Q**, but details (e.g. menu bar title badges) may differ.
 
 ## Setup (clone for development)
 
@@ -73,7 +73,7 @@ npm install
 npm run dev
 ```
 
-For a production build and local run:
+After a build, **`npm start`** runs `electron-vite preview` (serves the built renderer for a local run):
 
 ```bash
 npm run build

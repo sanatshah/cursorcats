@@ -120,7 +120,48 @@ function addHooks(pkgRoot, opts = {}) {
   log('Reload the Cursor window (Command Palette: Developer: Reload Window) so hook changes take effect.');
 }
 
-module.exports = { addHooks };
+/**
+ * Removes cursorcats hook entries from ~/.cursor/hooks.json and deletes copied scripts.
+ * @param {string} _pkgRoot unused (keeps parity with addHooks for programmatic callers)
+ * @param {{ log?: (msg: string, ...rest: unknown[]) => void }} [opts]
+ */
+function removeHooks(_pkgRoot, opts = {}) {
+  const log = opts.log || console.log.bind(console);
+  const cursorDir = path.join(os.homedir(), '.cursor');
+  const hooksJsonPath = path.join(cursorDir, 'hooks.json');
+
+  if (fs.existsSync(hooksJsonPath)) {
+    const data = readHooksJson(hooksJsonPath);
+    const hooks = data.hooks && typeof data.hooks === 'object' ? { ...data.hooks } : {};
+    const ss = stripCursorcatsEntries(normalizeHookList(hooks.sessionStart), 'start');
+    const se = stripCursorcatsEntries(normalizeHookList(hooks.sessionEnd), 'end');
+    const out = {
+      ...data,
+      version: typeof data.version === 'number' ? data.version : 1,
+      hooks: {
+        ...hooks,
+        sessionStart: ss,
+        sessionEnd: se,
+      },
+    };
+    fs.writeFileSync(hooksJsonPath, `${JSON.stringify(out, null, 2)}\n`, 'utf8');
+    log(`Updated ${hooksJsonPath}`);
+  } else {
+    log(`No hooks.json at ${hooksJsonPath}; skipped editing hook list.`);
+  }
+
+  const destDir = path.join(os.homedir(), '.cursor', 'hooks', 'cursorcats');
+  if (fs.existsSync(destDir)) {
+    fs.rmSync(destDir, { recursive: true, force: true });
+    log(`Removed ${destDir}`);
+  } else {
+    log(`No hook script directory at ${destDir}`);
+  }
+
+  log('Reload the Cursor window (Command Palette: Developer: Reload Window) so hook changes take effect.');
+}
+
+module.exports = { addHooks, removeHooks };
 
 if (require.main === module) {
   try {

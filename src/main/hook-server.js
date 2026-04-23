@@ -43,7 +43,10 @@ function startHookServer(options = {}) {
           res.end('{}');
           return;
         }
+        const eventName = json && typeof json === 'object' ? json.event : undefined;
+        log.log('[cursorcats] hook event received:', eventName);
         if (json == null || typeof json !== 'object' || json.token !== serverToken) {
+          log.log('[cursorcats] hook event rejected: bad token');
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end('{}');
           return;
@@ -52,8 +55,12 @@ function startHookServer(options = {}) {
         const payload = json.payload && typeof json.payload === 'object' ? json.payload : {};
         try {
           if (event === 'ide-session-start' && typeof onIdeSessionStart === 'function') {
+            const sid = payload && payload.session_id != null ? String(payload.session_id) : '';
+            log.log('[cursorcats] dispatching ide-session-start session=', sid);
             onIdeSessionStart(payload);
           } else if (event === 'ide-session-end' && typeof onIdeSessionEnd === 'function') {
+            const sid = payload && payload.session_id != null ? String(payload.session_id) : '';
+            log.log('[cursorcats] dispatching ide-session-end session=', sid);
             onIdeSessionEnd(payload);
           }
         } catch (e) {

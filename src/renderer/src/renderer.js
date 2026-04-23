@@ -773,6 +773,9 @@
             Math.floor(Math.random() * FINISH_BUBBLE_MESSAGES.length)
           ];
         ensureFinishBubbleDom(cat);
+        if (cat.kind === 'ide') {
+          scheduleIdeCatRemoval(cat);
+        }
         return;
       }
       cat.x += (dx > 0 ? 1 : -1) * move;
@@ -1269,6 +1272,8 @@
       finishReshowing: false,
       finishReshowPending: false,
       nextFinishReshowAttemptAt: 0,
+      /** @type {ReturnType<typeof setTimeout> | null} */
+      ideRemovalTimer: null,
     };
     const { max } = getHorizontalRange(cat);
     cat.x = max;
@@ -1280,6 +1285,29 @@
 
   /** How long the "I'm finished" speech bubble lingers before auto-hiding. */
   const FINISH_BUBBLE_TTL_MS = 30000;
+
+  /** After IDE session ends, dismiss the overlay cat this long after showing the finished state. */
+  const IDE_FINISH_REMOVE_MS = 10000;
+
+  function clearIdeRemovalTimer(cat) {
+    if (!cat || !cat.ideRemovalTimer) return;
+    clearTimeout(cat.ideRemovalTimer);
+    cat.ideRemovalTimer = null;
+  }
+
+  /** Schedule remove via main `dismissCat` → `removeIdeCatIfPresent` after the finish animation + bubble. */
+  function scheduleIdeCatRemoval(cat) {
+    if (!cat || cat.kind !== 'ide' || !cat.catId) return;
+    clearIdeRemovalTimer(cat);
+    cat.ideRemovalTimer = setTimeout(() => {
+      cat.ideRemovalTimer = null;
+      const id = cat.catId != null ? String(cat.catId) : '';
+      if (!id || !window.cursorcats || typeof window.cursorcats.dismissCat !== 'function') return;
+      const still = cats.find((c) => c.catId != null && String(c.catId) === id);
+      if (!still) return;
+      window.cursorcats.dismissCat(id);
+    }, IDE_FINISH_REMOVE_MS);
+  }
 
   function destroyFinishBubble(cat) {
     if (!cat) return;
@@ -1403,6 +1431,7 @@
     cat.finishReshowing = false;
     cat.finishReshowPending = false;
     cat.nextFinishReshowAttemptAt = 0;
+    clearIdeRemovalTimer(cat);
     const nowTs = performance.now();
     cat.idleEndAt = nowTs + rand(200, 600);
     cat.y = getBottomY(cat);
@@ -1415,9 +1444,6 @@
     if (!ev || ev.catId == null) return;
     const id = String(ev.catId);
     const cat = cats.find((c) => c.catId != null && String(c.catId) === id);
-    if (cat && cat.kind === 'ide') {
-      return;
-    }
     if (cat && cat.finished) return;
     if (!cat) {
       pendingFinishes.set(id, ev);
@@ -1429,6 +1455,11 @@
   }
 
   async function spawnCat(payload) {
+    // eslint-disable-next-line no-console
+    console.log('[cursorcats] spawnCat received', {
+      catId: payload && payload.catId,
+      kind: payload && payload.kind,
+    });
     if (!window.cursorcats) return;
     try {
       if (!manifestPaths) manifestPaths = await readCatManifestPaths();
@@ -1437,15 +1468,17 @@
       const spriteSource = buildHueSprite(img);
       const cat = makeCat(manifest, spriteSource, payload, hitbox);
       cats.push(cat);
-      if (cat.kind !== 'ide' && cat.catId && pendingFinishes.has(String(cat.catId))) {
+      if (cat.catId && pendingFinishes.has(String(cat.catId))) {
         const p = pendingFinishes.get(String(cat.catId));
         pendingFinishes.delete(String(cat.catId));
-        if (p) applyAgentFinishToCat(cat, p);
-        relayoutFinishedCats();
+        if (p) {
+          applyAgentFinishToCat(cat, p);
+          relayoutFinishedCats();
+        }
       }
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.warn('Failed to spawn cat', e);
+      console.error('[cursorcats] Failed to spawn cat', { payload, err: e });
     }
     reportCatCountsIfChanged();
   }
@@ -1478,6 +1511,7 @@
           pendingFinishes.delete(rid);
           const idx = cats.findIndex((c) => c.catId != null && String(c.catId) === rid);
           if (idx >= 0) {
+            clearIdeRemovalTimer(cats[idx]);
             destroyFinishBubble(cats[idx]);
             cats.splice(idx, 1);
             relayoutFinishedCats();
