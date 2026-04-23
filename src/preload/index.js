@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('cursorcats', {
     ipcRenderer.send('open-cat-conversation', { catId });
   },
   getAgentConversation: (catId) => ipcRenderer.invoke('get-agent-conversation', catId),
+  openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   onConversationUpdated: (callback) => {
     const listener = (_event, payload) => {
       try {

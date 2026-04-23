@@ -8,6 +8,7 @@ const {
   ipcMain,
   screen,
   dialog,
+  shell,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -52,6 +53,8 @@ function assertPathInsideApp(relPath) {
 let mainWindow;
 let modalWindow;
 let conversationWindow;
+/** Square conversation panel — content dimensions (px). */
+const CONVERSATION_WINDOW_SIDE = 800;
 /** @type {null | (() => void)} */
 let closeHookServer = null;
 /** When true, the overlay is accepting mouse (cursor over a cat). */
@@ -269,6 +272,7 @@ function openConversationWindow(catId) {
         query: q,
       });
     }
+    conversationWindow.setContentSize(CONVERSATION_WINDOW_SIDE, CONVERSATION_WINDOW_SIDE);
     conversationWindow.show();
     conversationWindow.focus();
     if (process.platform === 'darwin') {
@@ -283,8 +287,8 @@ function openConversationWindow(catId) {
   }
 
   conversationWindow = new BrowserWindow({
-    width: 680,
-    height: 560,
+    width: CONVERSATION_WINDOW_SIDE,
+    height: CONVERSATION_WINDOW_SIDE,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -301,6 +305,7 @@ function openConversationWindow(catId) {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false,
     },
   });
 
@@ -558,7 +563,11 @@ ipcMain.on('new-cat-submit', (_event, payload) => {
     mainWindow.webContents.send('spawn-cat', out);
   }
   startAgentForCat(
-    { catId, folder: payload.folder, prompt: payload.prompt },
+    {
+      catId,
+      folder: payload.folder,
+      prompt: payload.prompt,
+    },
     { getMainWindow: () => mainWindow }
   );
   if (modalWindow && !modalWindow.isDestroyed()) {
@@ -647,6 +656,22 @@ ipcMain.on('agent-followup', (_e, { catId, text } = {}) => {
 });
 
 ipcMain.handle('get-agent-conversation', (_e, catId) => getAgentConversation(catId));
+
+ipcMain.handle('open-external-url', async (_e, url) => {
+  if (typeof url !== 'string' || !url.trim()) {
+    return { ok: false, error: 'invalid url' };
+  }
+  const u = url.trim();
+  if (!/^file:/i.test(u) && !/^https:/i.test(u)) {
+    return { ok: false, error: 'unsupported url scheme' };
+  }
+  try {
+    await shell.openExternal(u);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+});
 
 app.whenReady().then(() => {
   if (process.platform === 'darwin' && app.dock) {

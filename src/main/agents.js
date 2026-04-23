@@ -1,5 +1,10 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { pathToFileURL } = require('url');
+
 /**
  * One Cursor SDK agent per on-screen cat; multiple `send` runs over its lifetime.
  * Streams `run.stream()` into a per-cat conversation log for the UI.
@@ -7,11 +12,178 @@
 
 /** @typedef {{ agent: import('@cursor/february').Agent, run: import('@cursor/february').Run | null, folder: string, busy: boolean, runPromise?: Promise<void> }} ActiveEntry */
 
+/** @type {Map<string, { folder: string, prompt: string, items: Array<{ kind: string, text: string, at: number, streamId?: string }>, runStatus: string, endResult?: string, durationMs?: number, activeAssistantBubble?: boolean, answerHtmlFileUrl?: string, answerHtmlWriteError?: string }>} */
+const conversations = new Map();
+
 /** @type {Map<string, ActiveEntry>} */
 const active = new Map();
 
-/** @type {Map<string, { folder: string, prompt: string, items: Array<{ kind: string, text: string, at: number, streamId?: string }>, runStatus: string, endResult?: string, durationMs?: number, activeAssistantBubble?: boolean }>} */
-const conversations = new Map();
+const CURSORCATS_ANSWER_HTML_FENCE = 'cursorcats-answer-html';
+
+function buildAnswerHtmlPageInstruction() {
+  return (
+    '\n\nWhen your work is complete and you send your final assistant message for this run ' +
+    '(including the usual very short playful cat line, then a blank line, then the rest), ' +
+    `also append a single fenced code block whose opening fence is exactly \`\`\`${CURSORCATS_ANSWER_HTML_FENCE} ` +
+    'on its own line, followed by one complete HTML5 document (raw HTML only inside the block), ' +
+    'then a closing ``` line. That HTML must be self-contained (embed CSS in <style> if needed), ' +
+    'readable, and present your answer to the user’s prompt for standalone viewing. Prefer no JavaScript.\n' +
+    '\n' +
+    'Style that HTML page to match Cursorcats: the same warm, whimsical pixel-familiar ' +
+    'aesthetic as the on-screen pet—cozy, playful, a little toy-box or yarn-basket, not a ' +
+    'corporate report. In <head> you may @import a free bitmap/pixel font (e.g. “Press Start 2P” ' +
+    'or “VT323” from Google Fonts) for headings or short labels; use legible text for long ' +
+    'explanations (a crisp monospace stack is fine). ' +
+    'Color story: light cream background and warm neutrals, ink foreground, orange accent ' +
+    '— e.g. background #f7f7f4, main text #26251e, accent #f54e00, soft cards #f2f1ed ' +
+    '(darker tints for depth: #f0efeb, #ebeae5). ' +
+    'Add pixel-era polish: chunk borders, modest box-shadow “steps” or hard edges, ' +
+    'image-rendering: pixelated on tiny decorations, an optional subtle grid or dot dither, ' +
+    'and spare decorative touches (tiny paw, yarn, window sill) in CSS or Unicode—light touch, ' +
+    'not noisy. The page should feel like the same run’s HTML souvenir as the desktop cat.\n'
+  );
+}
+
+function extractAnswerHtmlBlock(fullText) {
+  const re = new RegExp(
+    '```' + CURSORCATS_ANSWER_HTML_FENCE + '\\s*\\n([\\s\\S]*?)```',
+    'im'
+  );
+  const m = String(fullText || '').match(re);
+  if (!m || !m[1]) return null;
+  const inner = m[1].trim();
+  return inner.length > 0 ? inner : null;
+}
+
+function stripAnswerHtmlFenceFromText(fullText) {
+  return String(fullText || '')
+    .replace(
+      new RegExp('```' + CURSORCATS_ANSWER_HTML_FENCE + '[\\s\\S]*?```', 'im'),
+      '\n\n[Answer layout is on the Answer page view.]\n\n'
+    )
+    .trim();
+}
+
+function getLastAssistantFullText(rec) {
+  if (!rec || !Array.isArray(rec.items)) return '';
+  for (let i = rec.items.length - 1; i >= 0; i--) {
+    const it = rec.items[i];
+    if (it && it.kind === 'assistant' && it.text) return String(it.text);
+  }
+  return '';
+}
+
+function escapeHtmlBody(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function buildFallbackAnswerDocument(title, bodyText) {
+  const t = escapeHtmlBody((title || 'Answer').trim().slice(0, 200));
+  const body = escapeHtmlBody(bodyText || '').replace(/\n/g, '<br>\n');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${t}</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    margin: 0;
+    min-height: 100vh;
+    color: #26251e;
+    background: #f7f7f4
+      linear-gradient(90deg, rgba(0,0,0,0.02) 1px, transparent 1px) 0 0/8px 8px;
+    background-blend-mode: multiply;
+  }
+  .sill {
+    max-width: 40rem;
+    margin: 1.5rem auto;
+    padding: 1.25rem 1.4rem 1.4rem;
+    background: #f2f1ed;
+    border: 3px solid #26251e;
+    box-shadow: 4px 4px 0 #26251e, 6px 6px 0 rgba(245, 78, 0, 0.35);
+    image-rendering: pixelated;
+  }
+  h1 {
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: #f54e00;
+    margin: 0 0 0.9rem;
+    text-shadow: 1px 1px 0 rgba(38, 37, 30, 0.12);
+  }
+  .body { white-space: pre-wrap; word-break: break-word; }
+  .paw { font-size: 0.85rem; opacity: 0.4; user-select: none; }
+</style>
+</head>
+<body>
+  <div class="sill">
+    <p class="paw" aria-hidden="true">🐾</p>
+    <h1>${t}</h1>
+    <div class="body">${body}</div>
+  </div>
+</body>
+</html>
+`;
+}
+
+function wrapFragmentAsHtml(fragment) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Answer</title>
+</head>
+<body>
+${fragment}
+</body>
+</html>
+`;
+}
+
+/**
+ * @param {string} catId
+ * @param {object} rec
+ * @param {Console} log
+ */
+function commitAnswerHtmlPage(catId, rec, log) {
+  const id = String(catId);
+  const dir = path.join(os.homedir(), '.cursorcats', 'answers', id);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (e) {
+    rec.answerHtmlFileUrl = undefined;
+    rec.answerHtmlWriteError = (e && e.message) || String(e);
+    log.warn('answer html mkdir failed', e);
+    return;
+  }
+  const filePath = path.join(dir, 'index.html');
+  const lastAssist = getLastAssistantFullText(rec);
+  let html = lastAssist ? extractAnswerHtmlBlock(lastAssist) : null;
+  if (!html) {
+    const bodySrc = lastAssist ? stripAnswerHtmlFenceFromText(lastAssist) : '';
+    html = buildFallbackAnswerDocument(rec.prompt, bodySrc || 'No assistant reply was recorded.');
+  } else if (!/<!DOCTYPE/i.test(html) && !/<html[\s>]/i.test(html)) {
+    html = wrapFragmentAsHtml(html);
+  }
+  try {
+    fs.writeFileSync(filePath, html, 'utf8');
+    rec.answerHtmlFileUrl = pathToFileURL(filePath).href;
+    rec.answerHtmlWriteError = undefined;
+  } catch (e) {
+    rec.answerHtmlFileUrl = undefined;
+    rec.answerHtmlWriteError = (e && e.message) || String(e);
+    log.warn('answer html write failed', e);
+  }
+}
 
 /** @type {(info: { catId: string, streamBubble?: string | null }) => void} */
 let onConversationPushed = () => {};
@@ -281,6 +453,8 @@ function initConversationState(catId, { folder, prompt }) {
     items: prompt ? [{ kind: 'user', text: String(prompt), at: now() }] : [],
     runStatus: 'running',
     activeAssistantBubble: false,
+    answerHtmlFileUrl: undefined,
+    answerHtmlWriteError: undefined,
   });
   onConversationPushed({ catId });
 }
@@ -296,6 +470,8 @@ function getAgentConversation(catId) {
     runStatus: c.runStatus,
     endResult: c.endResult,
     durationMs: c.durationMs,
+    answerHtmlFileUrl: c.answerHtmlFileUrl || null,
+    answerHtmlWriteError: c.answerHtmlWriteError || null,
   };
 }
 
@@ -377,8 +553,9 @@ function runOnAgent(catId, notify, log, prompt) {
     try {
       let run;
       const addedSystemInstruction = buildAddedSystemInstruction(prompt);
+      const htmlExtra = buildAnswerHtmlPageInstruction();
       try {
-        run = await entry.agent.send(String(addedSystemInstruction + prompt));
+        run = await entry.agent.send(String(addedSystemInstruction + htmlExtra + prompt));
       } catch (e) {
         log.warn('agent.send failed', e);
         const r = conversations.get(id);
@@ -388,6 +565,7 @@ function runOnAgent(catId, notify, log, prompt) {
           r.endResult = errText;
           r.items.push({ kind: 'error', text: errText, at: now() });
           r.activeAssistantBubble = false;
+          commitAnswerHtmlPage(id, r, log);
           onConversationPushed({ catId: id });
         }
         notify({
@@ -428,6 +606,7 @@ function runOnAgent(catId, notify, log, prompt) {
             r.durationMs = undefined;
           }
           r.activeAssistantBubble = false;
+          commitAnswerHtmlPage(id, r, log);
           onConversationPushed({ catId: id });
         }
         const status = result && result.status != null ? result.status : 'finished';
@@ -449,6 +628,7 @@ function runOnAgent(catId, notify, log, prompt) {
           r.endResult = errText;
           r.items.push({ kind: 'error', text: errText, at: now() });
           r.activeAssistantBubble = false;
+          commitAnswerHtmlPage(id, r, log);
           onConversationPushed({ catId: id });
         }
         notify({
@@ -484,7 +664,11 @@ async function runAgentLifecycle({ catId, folder, prompt, notify, log }) {
       runStatus: 'error',
       endResult: noKeyMsg,
       activeAssistantBubble: false,
+      answerHtmlFileUrl: undefined,
+      answerHtmlWriteError: undefined,
     });
+    const recNoKey = conversations.get(id);
+    if (recNoKey) commitAnswerHtmlPage(id, recNoKey, log);
     onConversationPushed({ catId: id });
     notify({ catId: id, status: 'error', result: noKeyMsg });
     return;
@@ -502,6 +686,7 @@ async function runAgentLifecycle({ catId, folder, prompt, notify, log }) {
       rec.runStatus = 'error';
       rec.endResult = errText;
       rec.items.push({ kind: 'error', text: errText, at: now() });
+      commitAnswerHtmlPage(id, rec, log);
       onConversationPushed({ catId: id });
     }
     notify({ catId: id, status: 'error', result: (e && e.message) || String(e) });
@@ -517,7 +702,13 @@ async function runAgentLifecycle({ catId, folder, prompt, notify, log }) {
  */
 function startAgentForCat({ catId, folder, prompt }, { getMainWindow, log = console } = {}) {
   const notify = getNotify(getMainWindow);
-  void runAgentLifecycle({ catId: String(catId), folder, prompt, notify, log });
+  void runAgentLifecycle({
+    catId: String(catId),
+    folder,
+    prompt,
+    notify,
+    log,
+  });
 }
 
 /**
@@ -548,6 +739,8 @@ function sendFollowup(catId, text, opts = {}) {
     rec.endResult = undefined;
     rec.durationMs = undefined;
     rec.activeAssistantBubble = false;
+    rec.answerHtmlFileUrl = undefined;
+    rec.answerHtmlWriteError = undefined;
     onConversationPushed({ catId: id });
   }
 

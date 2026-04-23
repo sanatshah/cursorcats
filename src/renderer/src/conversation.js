@@ -6,6 +6,22 @@ const logEl = document.getElementById('log');
 const metaEl = document.getElementById('meta');
 const closeBtn = document.getElementById('btn-close');
 const dismissBtn = document.getElementById('btn-dismiss');
+const answerToggleBar = document.getElementById('answer-toggle-bar');
+const btnViewConversation = document.getElementById('btn-view-conversation');
+const btnViewAnswer = document.getElementById('btn-view-answer');
+const answerErrorRow = document.getElementById('answer-error-row');
+const answerPageErr = document.getElementById('answer-page-error');
+const answerPreviewPane = document.getElementById('answer-preview-pane');
+const answerPreviewIframe = document.getElementById('answer-preview-iframe');
+const conversationSection = document.getElementById('conversation-section');
+/** @type {string | null} */
+let answerPageUrl = null;
+/** @type {string | null} */
+let lastBoundAnswerUrl = null;
+/** @type {string | null} */
+let lastIframeBoundUrl = null;
+/** @type {'answer' | 'conversation'} */
+let answerViewMode = 'answer';
 const followupInput = document.getElementById('followup-input');
 const sendBtn = document.getElementById('btn-send');
 
@@ -45,10 +61,104 @@ function updateComposerFromData(data) {
   sendBtn.disabled = !ok || running;
 }
 
+function clearAnswerPreview() {
+  answerPageUrl = null;
+  lastIframeBoundUrl = null;
+  if (answerPreviewIframe) answerPreviewIframe.removeAttribute('src');
+}
+
+function updateAnswerPagePanel(data) {
+  const elsOk =
+    answerToggleBar &&
+    btnViewConversation &&
+    btnViewAnswer &&
+    answerErrorRow &&
+    answerPageErr &&
+    answerPreviewPane &&
+    answerPreviewIframe &&
+    conversationSection;
+  if (!elsOk) return;
+
+  answerPageUrl = null;
+  btnViewConversation.hidden = true;
+  btnViewAnswer.hidden = true;
+  answerPageErr.textContent = '';
+
+  if (!data || !data.found) {
+    answerToggleBar.hidden = true;
+    answerErrorRow.hidden = true;
+    answerPreviewPane.hidden = true;
+    conversationSection.hidden = false;
+    lastBoundAnswerUrl = null;
+    clearAnswerPreview();
+    return;
+  }
+
+  const running = String(data.runStatus || '').toLowerCase() === 'running';
+  if (running) {
+    answerToggleBar.hidden = true;
+    answerErrorRow.hidden = true;
+    answerPreviewPane.hidden = true;
+    conversationSection.hidden = false;
+    lastBoundAnswerUrl = null;
+    clearAnswerPreview();
+    return;
+  }
+
+  const url = data.answerHtmlFileUrl;
+  const writeErr = data.answerHtmlWriteError;
+
+  if (writeErr) {
+    answerToggleBar.hidden = true;
+    answerErrorRow.hidden = false;
+    answerPageErr.textContent = `Could not save answer page: ${writeErr}`;
+    answerPreviewPane.hidden = true;
+    conversationSection.hidden = false;
+    lastBoundAnswerUrl = null;
+    clearAnswerPreview();
+    return;
+  }
+
+  answerErrorRow.hidden = true;
+
+  if (!url) {
+    answerToggleBar.hidden = true;
+    answerPreviewPane.hidden = true;
+    conversationSection.hidden = false;
+    lastBoundAnswerUrl = null;
+    clearAnswerPreview();
+    return;
+  }
+
+  answerPageUrl = String(url);
+  if (answerPageUrl !== lastBoundAnswerUrl) {
+    answerViewMode = 'answer';
+    lastBoundAnswerUrl = answerPageUrl;
+  }
+
+  answerToggleBar.hidden = false;
+  btnViewConversation.hidden = answerViewMode !== 'answer';
+  btnViewAnswer.hidden = answerViewMode !== 'conversation';
+
+  if (lastIframeBoundUrl !== answerPageUrl) {
+    answerPreviewIframe.src = answerPageUrl;
+    lastIframeBoundUrl = answerPageUrl;
+  }
+
+  if (answerViewMode === 'answer') {
+    answerPreviewPane.hidden = false;
+    conversationSection.hidden = true;
+  } else {
+    answerPreviewPane.hidden = true;
+    conversationSection.hidden = false;
+  }
+}
+
 async function render() {
   if (!window.cursorcats?.getAgentConversation || !catId) {
     logEl.textContent = 'No conversation to show.';
     updateComposerFromData(null);
+    updateAnswerPagePanel(null);
     return;
   }
   const data = await window.cursorcats.getAgentConversation(catId);
@@ -56,6 +166,7 @@ async function render() {
   if (!data || !data.found) {
     logEl.textContent = 'This conversation is not available yet, or the agent was not started.';
     updateComposerFromData(null);
+    updateAnswerPagePanel(null);
     return;
   }
 
@@ -79,6 +190,7 @@ async function render() {
     .join('');
   logEl.scrollTop = logEl.scrollHeight;
   updateComposerFromData(data);
+  updateAnswerPagePanel(data);
 }
 
 function sendFollowup() {
@@ -125,6 +237,25 @@ closeBtn.addEventListener('click', () => {
 if (dismissBtn) {
   dismissBtn.addEventListener('click', () => {
     dismiss();
+  });
+}
+
+function applyAnswerViewFromState() {
+  if (!lastData) return;
+  updateAnswerPagePanel(lastData);
+}
+
+if (btnViewConversation) {
+  btnViewConversation.addEventListener('click', () => {
+    answerViewMode = 'conversation';
+    applyAnswerViewFromState();
+  });
+}
+
+if (btnViewAnswer) {
+  btnViewAnswer.addEventListener('click', () => {
+    answerViewMode = 'answer';
+    applyAnswerViewFromState();
   });
 }
 
