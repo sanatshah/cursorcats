@@ -6,15 +6,26 @@ Drop your sprite sheet and this folder’s `sprite.json` into `assets/cats/` in 
 
 ```
 assets/cats/
+  cats.json        # optional — lists sprite manifests; one is chosen at random on launch
   sprite.json
   cat.png          # or whatever filename you set in sprite.json → "image"
+  mackerel/        # example subfolder: its sprite.json can use "image": "../cat.png"
+    sprite.json
 ```
+
+### Multiple cats (`cats.json`)
+
+If `cats.json` is missing, the app loads `sprite.json` only (same as before).
+
+Otherwise it reads a `manifests` array: paths to JSON files **under `assets/cats/`** (POSIX-style, e.g. `sprite.json`, `orange/sprite.json`). Each entry is a full sprite definition like `sprite.json`. On each app start, **one manifest is chosen at random**.
+
+The sheet image path in each manifest is resolved relative to that manifest’s folder, so a nested `orange/sprite.json` can set `"image": "sheet.png"` for `assets/cats/orange/sheet.png` or `"image": "../shared.png"` for a file next to `assets/cats/`.
 
 ## `sprite.json` format
 
 | Field | Meaning |
 |--------|--------|
-| `image` | Filename of the PNG sheet (same folder as `sprite.json`). |
+| `image` | PNG sheet path relative to the manifest file’s folder (e.g. `cat.png` or `../shared.png`). |
 | `frameWidth` / `frameHeight` | Size in **pixels** of one frame in the sheet. |
 | `scale` | Integer scale when drawing (e.g. `2` = 2× size on screen). |
 | `animations` | Named clips. Each row of the sheet is one animation. |

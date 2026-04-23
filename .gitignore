@@ -1,4 +1,34 @@
+# Dependencies
 node_modules/
+
+# Build output (electron-vite)
+out/
 dist/
-.DS_Store
+
+# Logs & debug
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Test & coverage
+coverage/
+.nyc_output/
+
+# Caches
+.vite/
+.cache/
+
+# Packaging
+*.tgz
+release/

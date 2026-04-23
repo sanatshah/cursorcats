@@ -1,5 +1,5 @@
 {
-  "image": "cat.png",
+  "image": "../cat.png",
   "frameWidth": 80,
   "frameHeight": 64,
   "scale": 2,

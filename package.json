@@ -2,15 +2,39 @@
   "name": "cursorcats",
   "version": "1.0.0",
   "description": "Frameless transparent desktop cat pet with sprite animation",
-  "main": "main.js",
-  "scripts": {
-    "start": "electron ."
+  "main": "out/main/index.js",
+  "bin": {
+    "cursorcats": "bin/cursorcats.js"
   },
-  "keywords": ["electron", "cat", "desktop-pet"],
+  "files": [
+    "bin",
+    "out",
+    "assets",
+    "src",
+    "README.md",
+    "electron.vite.config.mjs"
+  ],
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "prepare": "electron-vite build"
+  },
+  "keywords": [
+    "electron",
+    "cat",
+    "desktop-pet"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "electron": "^35.0.0"
+    "electron-vite": "^5.0.0",
+    "vite": "^7.3.2"
+  },
+  "dependencies": {
+    "@cursor/february": "^1.0.4",
+    "electron": "^35.0.0",
+    "get-windows": "^9.3.0"
   }
 }

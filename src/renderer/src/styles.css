@@ -10,7 +10,10 @@ body {
   height: 100%;
   overflow: hidden;
   background: transparent;
-  /* Let clicks pass to the OS / apps below */
+  /* Click-through is handled dynamically by the main process via
+     setIgnoreMouseEvents, so the canvas itself must be able to
+     receive events when the overlay is temporarily mouseable
+     (cursor over a cat). */
   pointer-events: none;
   user-select: none;
 }
@@ -21,4 +24,5 @@ body {
   height: 100vh;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
+  pointer-events: auto;
 }
