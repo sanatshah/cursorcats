@@ -2,7 +2,7 @@
   <img src="assets/repo-banner.png" alt="Cursor Cats" width="100%" />
 </p>
 
-**Code with Cursor Cats**, little pixel familiars on your desktop while **Cursor Agents** do the real work. One cat per run, prowling on top of every window, purring until the task lands, and occasionally fighting with eachother. Click a cat to read the thread; spawn another, pick a folder, drop a prompt, and let it pad off to code.
+**Code with Cursor Cats**, little pixel familiars on your desktop while Cursor Agents do the real work. One cat per run, prowling on top of every window, purring until the task lands, while occasionally fighting with eachother. Click a cat to read its conversation or to see its final message. CMD+Shift+S to launch a new cat.
 
 ## Powered by the Cursor SDK
 
