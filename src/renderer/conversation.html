@@ -20,9 +20,6 @@
         </button>
       </div>
       <div id="answer-toggle-bar" class="answer-page-panel" hidden>
-        <button type="button" id="btn-view-conversation" class="answer-page-btn" hidden>
-          View conversation
-        </button>
         <button type="button" id="btn-view-answer" class="answer-page-btn answer-page-btn--secondary" hidden>
           View answer
         </button>
@@ -43,13 +40,18 @@
         </div>
       </div>
       <footer class="composer">
-        <label class="composer-label" for="followup-input">Follow up</label>
+        <div class="composer-label-row">
+          <label class="composer-label" for="followup-input">Follow up</label>
+          <button type="button" id="btn-view-conversation" class="answer-page-btn composer-answer-toggle" hidden>
+            View conversation
+          </button>
+        </div>
         <div class="composer-row">
           <textarea
             id="followup-input"
             class="composer-input"
             rows="2"
-            placeholder="Message the agent… (Enter to send, Shift+Enter for newline)"
+            placeholder="Message the agent… (Enter send · ⌘/Ctrl+Enter or Shift+Enter newline)"
             autocomplete="off"
           ></textarea>
           <button type="button" id="btn-send" class="composer-send">Send</button>

@@ -1,6 +1,7 @@
 /* global cursorcats */
 
 import appIconUrl from '../../../assets/icon.png';
+import { insertNewlineAtCursor } from './insert-newline-at-cursor.js';
 
 const promptEl = document.getElementById('prompt');
 const headerAppIcon = document.getElementById('header-app-icon');
@@ -18,10 +19,10 @@ const isApple =
 if (promptSendHintEl) {
   if (isApple) {
     promptSendHintEl.innerHTML =
-      '<kbd>Enter</kbd> new line · <kbd>⌘</kbd>+<kbd>Enter</kbd> send';
+      '<kbd>Enter</kbd> send · <kbd>⌘</kbd>+<kbd>Enter</kbd> new line';
   } else {
     promptSendHintEl.innerHTML =
-      '<kbd>Enter</kbd> new line · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> send';
+      '<kbd>Enter</kbd> send · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> new line';
   }
 }
 
@@ -196,10 +197,15 @@ window.addEventListener('resize', () => {
 });
 
 promptEl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+  if (e.key !== 'Enter') return;
+  if (e.metaKey || e.ctrlKey) {
     e.preventDefault();
-    submit();
+    insertNewlineAtCursor(promptEl);
+    syncPromptHeight();
+    return;
   }
+  e.preventDefault();
+  submit();
 });
 
 document.addEventListener('keydown', (e) => {

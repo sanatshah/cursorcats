@@ -1,5 +1,7 @@
 /* global cursorcats */
 
+import { insertNewlineAtCursor } from './insert-newline-at-cursor.js';
+
 const params = new URLSearchParams(window.location.search);
 const catId = params.get('catId');
 const logEl = document.getElementById('log');
@@ -136,7 +138,7 @@ function updateAnswerPagePanel(data) {
     lastBoundAnswerUrl = answerPageUrl;
   }
 
-  answerToggleBar.hidden = false;
+  answerToggleBar.hidden = answerViewMode === 'answer';
   btnViewConversation.hidden = answerViewMode !== 'answer';
   btnViewAnswer.hidden = answerViewMode !== 'conversation';
 
@@ -267,7 +269,13 @@ if (sendBtn) {
 
 if (followupInput) {
   followupInput.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.shiftKey) return;
+    if (e.key !== 'Enter') return;
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      insertNewlineAtCursor(followupInput);
+      return;
+    }
+    if (e.shiftKey) return;
     e.preventDefault();
     sendFollowup();
   });

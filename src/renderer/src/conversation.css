@@ -251,6 +251,15 @@ footer.composer {
   background: rgba(0, 0, 0, 0.2);
 }
 
+.composer-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  min-height: 20px;
+}
+
 .composer-label {
   display: block;
   font-size: 10px;
@@ -258,7 +267,16 @@ footer.composer {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: rgba(255, 255, 255, 0.45);
-  margin-bottom: 6px;
+  margin: 0;
+  flex: 0 1 auto;
+}
+
+.composer-answer-toggle {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 5px 10px;
+  font-size: 11px;
+  align-self: center;
 }
 
 .composer-row {
