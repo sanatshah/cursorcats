@@ -1,3 +1,15 @@
+function quietSdkLogsByDefault() {
+  if (String(process.env.CURSORCATS_AGENT_LOG_VERBOSE || '').trim() === '1') {
+    return;
+  }
+  process.env.RUST_LOG = 'error';
+  process.env.LOG_LEVEL = 'warn';
+  process.env.OTEL_LOG_LEVEL = 'error';
+  process.env.DEBUG = '';
+}
+
+quietSdkLogsByDefault();
+
 const {
   app,
   BrowserWindow,

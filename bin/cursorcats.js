@@ -14,11 +14,37 @@ function envWithQuietSdkLogs(env) {
   }
   return {
     ...env,
-    RUST_LOG: env.RUST_LOG || 'error',
-    LOG_LEVEL: env.LOG_LEVEL || 'warn',
-    OTEL_LOG_LEVEL: env.OTEL_LOG_LEVEL || 'error',
+    RUST_LOG: 'error',
+    LOG_LEVEL: 'warn',
+    OTEL_LOG_LEVEL: 'error',
     DEBUG: '',
   };
+}
+
+function shouldFilterSdkLogLine(line) {
+  if (String(process.env.CURSORCATS_AGENT_LOG_VERBOSE || '').trim() === '1') {
+    return false;
+  }
+  return line.includes('MCP OAuth provider initialized') && line.includes('mcp_oauth_provider_initialized');
+}
+
+function pipeFilteredLines(stream, target) {
+  let pending = '';
+  stream.on('data', (chunk) => {
+    pending += chunk.toString();
+    const lines = pending.split(/\r?\n/);
+    pending = lines.pop() || '';
+    for (const line of lines) {
+      if (!shouldFilterSdkLogLine(line)) {
+        target.write(`${line}\n`);
+      }
+    }
+  });
+  stream.on('end', () => {
+    if (pending && !shouldFilterSdkLogLine(pending)) {
+      target.write(pending);
+    }
+  });
 }
 
 if (process.argv[2] === 'add-hooks') {
@@ -69,9 +95,12 @@ Use Cmd+Shift+C to launch a Cursor Cat.
 
 const child = spawn(electron, [mainEntry, ...process.argv.slice(2)], {
   cwd: pkgRoot,
-  stdio: 'inherit',
+  stdio: ['inherit', 'pipe', 'pipe'],
   env: envWithQuietSdkLogs(process.env),
 });
+
+pipeFilteredLines(child.stdout, process.stdout);
+pipeFilteredLines(child.stderr, process.stderr);
 
 child.on('error', (err) => {
   console.error('[cursorcats] Failed to start Electron:', err.message);
