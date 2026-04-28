@@ -6,7 +6,9 @@ Write code with your Cursor Cats, little pixel familiars on your desktop. One ca
 
 ## Powered by the Cursor SDK
 
-Cursor Cats are powered by the Cursor SDK. Spawning a cat from the modal creates a [`@cursor/february`](https://www.npmjs.com/package/@cursor/february) `Agent` rooted at the folder you pick.
+Cursor Cats are powered by the Cursor SDK. Spawning a local cat from the modal creates an [`@cursor/sdk`](https://www.npmjs.com/package/@cursor/sdk) `Agent` rooted at the folder you pick, with Cursor-like project, user, team, and plugin settings enabled so the run can use that workspace's rules and skills.
+
+Cloud cats use Cursor's cloud agent runtime instead. Choose **Cloud**, pick one of your Cursor-connected GitHub repositories, and optionally enter a starting ref. Cloud runs use `autoCreatePR: true`, so code-changing runs open a PR when Cursor returns git metadata.
 
 ## Installation
 
@@ -33,3 +35,5 @@ cursorcats
 ```
 - **Launch**: `cursorcats` (or `npx github:fieldsphere/cursor-cats`).
 - While the app is running, use **Cmd+Shift+C** (macOS) or **Ctrl+Shift+C** (Windows/Linux) to add a new Cursor Cat.
+- **Local runs**: choose a folder on disk. Finished local cats can revert changes back to the folder snapshot captured when the cat spawned.
+- **Cloud runs**: choose a connected repository from the Cloud tab. Finished cloud cats show returned branch/PR links in the conversation window; local revert is not available for cloud runs.

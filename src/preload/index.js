@@ -12,9 +12,15 @@ contextBridge.exposeInMainWorld('cursorcats', {
   listModels: () => ipcRenderer.invoke('list-models'),
   getSelectedModel: () => ipcRenderer.invoke('get-selected-model'),
   setSelectedModel: (modelId) => ipcRenderer.invoke('set-selected-model', modelId),
+  listCloudRepositories: () => ipcRenderer.invoke('list-cloud-repositories'),
+  getSelectedRuntime: () => ipcRenderer.invoke('get-selected-runtime'),
+  setSelectedRuntime: (runtime) => ipcRenderer.invoke('set-selected-runtime', runtime),
+  getSelectedCloudRepository: () => ipcRenderer.invoke('get-selected-cloud-repository'),
+  setSelectedCloudRepository: (repo) => ipcRenderer.invoke('set-selected-cloud-repository', repo),
   submitNewCat: (payload) => ipcRenderer.send('new-cat-submit', payload),
   cancelNewCat: () => ipcRenderer.send('new-cat-cancel'),
   resizeModal: (height) => ipcRenderer.send('resize-modal', { height }),
+  overlayReady: () => ipcRenderer.send('overlay-ready'),
   onSpawnCat: (callback) => {
     const listener = (_event, payload) => {
       try {

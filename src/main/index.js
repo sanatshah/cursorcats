@@ -66,6 +66,8 @@ let tray;
 let mainWindowWasVisibleOnAllWorkspaces = false;
 /** Latest overlay cat counts from renderer (dock / tray menu). */
 let catCounts = { active: 0, inReview: 0 };
+let overlayReady = false;
+const pendingSpawnCats = [];
 
 /** Tracked for frontmost window stability (used by get-frontmost-window-info). */
 let activeWindowState = { id: null, firstSeenAt: 0, screenBounds: null };
@@ -162,6 +164,9 @@ function createWindow() {
 
   mainWindow.on('show', () => rebuildAppMenus());
   mainWindow.on('hide', () => rebuildAppMenus());
+  mainWindow.webContents.on('did-start-loading', () => {
+    overlayReady = false;
+  });
   lastCatScreenRects = [];
   mainWindowMouseable = false;
 
@@ -170,6 +175,39 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+}
+
+function restoreMainWindowAllWorkspaces() {
+  if (process.platform !== 'darwin') return;
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindowWasVisibleOnAllWorkspaces) return;
+  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  mainWindowWasVisibleOnAllWorkspaces = false;
+}
+
+function ensureOverlayVisibleForSpawn() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  restoreMainWindowAllWorkspaces();
+  if (!mainWindow.isVisible()) {
+    mainWindow.showInactive();
+  }
+}
+
+function flushPendingSpawnCats() {
+  if (!mainWindow || mainWindow.isDestroyed() || !overlayReady) return;
+  ensureOverlayVisibleForSpawn();
+  while (pendingSpawnCats.length > 0) {
+    mainWindow.webContents.send('spawn-cat', pendingSpawnCats.shift());
+  }
+}
+
+function sendSpawnCatToOverlay(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  ensureOverlayVisibleForSpawn();
+  if (!overlayReady) {
+    pendingSpawnCats.push(payload);
+    return;
+  }
+  mainWindow.webContents.send('spawn-cat', payload);
 }
 
 /** Best-effort: bring Cursor to the foreground (no workspace/deeplink; see plan). */
@@ -209,7 +247,7 @@ function openNewCatModal() {
 
   modalWindow = new BrowserWindow({
     width: 680,
-    height: 200,
+    height: 500,
     useContentSize: true,
     frame: false,
     transparent: true,
@@ -240,10 +278,7 @@ function openNewCatModal() {
 
   modalWindow.on('closed', () => {
     modalWindow = null;
-    if (process.platform === 'darwin' && mainWindow && !mainWindow.isDestroyed() && mainWindowWasVisibleOnAllWorkspaces) {
-      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      mainWindowWasVisibleOnAllWorkspaces = false;
-    }
+    restoreMainWindowAllWorkspaces();
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -320,10 +355,7 @@ function openConversationWindow(catId) {
 
   conversationWindow.on('closed', () => {
     conversationWindow = null;
-    if (process.platform === 'darwin' && mainWindow && !mainWindow.isDestroyed() && mainWindowWasVisibleOnAllWorkspaces) {
-      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-      mainWindowWasVisibleOnAllWorkspaces = false;
-    }
+    restoreMainWindowAllWorkspaces();
   });
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -491,6 +523,11 @@ ipcMain.handle('get-app-path', () => getPackageRoot());
 ipcMain.handle('get-frontmost-window-bounds', getFrontmostWindowBoundsInOverlay);
 ipcMain.handle('get-frontmost-window-info', () => getFrontmostWindowInfo());
 
+ipcMain.on('overlay-ready', () => {
+  overlayReady = true;
+  flushPendingSpawnCats();
+});
+
 ipcMain.handle('read-text-file', (_event, relPath) => {
   const full = assertPathInsideApp(relPath);
   return fs.readFileSync(full, 'utf8');
@@ -567,13 +604,33 @@ function getModelSelectionPath() {
   return path.join(dir, 'model.json');
 }
 
+function getRuntimeSelectionPath() {
+  const dir = path.join(os.homedir(), '.cursorcats');
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return path.join(dir, 'runtime.json');
+}
+
+function getCloudRepositorySelectionPath() {
+  const dir = path.join(os.homedir(), '.cursorcats');
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return path.join(dir, 'cloud_repository.json');
+}
+
+function normalizeRuntime(value) {
+  return String(value || '').trim().toLowerCase() === 'cloud' ? 'cloud' : 'local';
+}
+
 ipcMain.handle('list-models', async () => {
   const apiKey = process.env.CURSOR_API_KEY;
   if (!apiKey) {
     return FALLBACK_MODEL_LIST;
   }
   try {
-    const { Cursor } = require('@cursor/february');
+    const { Cursor } = require('@cursor/sdk');
     const models = await Cursor.models.list({ apiKey });
     if (!Array.isArray(models) || models.length === 0) {
       return FALLBACK_MODEL_LIST;
@@ -615,6 +672,76 @@ ipcMain.handle('set-selected-model', (_event, modelId) => {
   }
 });
 
+ipcMain.handle('list-cloud-repositories', async () => {
+  const apiKey = process.env.CURSOR_API_KEY;
+  if (!apiKey) {
+    return [];
+  }
+  try {
+    const { Cursor } = require('@cursor/sdk');
+    const repos = await Cursor.repositories.list({ apiKey });
+    if (!Array.isArray(repos)) return [];
+    return repos
+      .map((r) => {
+        const url = r && r.url != null ? String(r.url).trim() : '';
+        return url ? { url } : null;
+      })
+      .filter(Boolean);
+  } catch (e) {
+    console.warn('list-cloud-repositories failed', e);
+    return [];
+  }
+});
+
+ipcMain.handle('get-selected-runtime', () => {
+  try {
+    const file = getRuntimeSelectionPath();
+    if (fs.existsSync(file)) {
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      return { runtime: normalizeRuntime(data && data.runtime) };
+    }
+  } catch (e) {
+    // ignore
+  }
+  return { runtime: 'local' };
+});
+
+ipcMain.handle('set-selected-runtime', (_event, runtime) => {
+  try {
+    const file = getRuntimeSelectionPath();
+    fs.writeFileSync(file, JSON.stringify({ runtime: normalizeRuntime(runtime) }, null, 2), 'utf8');
+  } catch (e) {
+    // ignore
+  }
+});
+
+ipcMain.handle('get-selected-cloud-repository', () => {
+  try {
+    const file = getCloudRepositorySelectionPath();
+    if (fs.existsSync(file)) {
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const url = data && typeof data.url === 'string' ? data.url.trim() : '';
+      const startingRef = data && typeof data.startingRef === 'string' ? data.startingRef.trim() : '';
+      if (url) return { url, startingRef };
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+});
+
+ipcMain.handle('set-selected-cloud-repository', (_event, repo) => {
+  const url = repo && typeof repo.url === 'string' ? repo.url.trim() : '';
+  const startingRef = repo && typeof repo.startingRef === 'string' ? repo.startingRef.trim() : '';
+  if (!url) return;
+  try {
+    const file = getCloudRepositorySelectionPath();
+    fs.writeFileSync(file, JSON.stringify({ url, startingRef }, null, 2), 'utf8');
+  } catch (e) {
+    // ignore
+  }
+});
+
 ipcMain.on('new-cat-submit', (_event, payload) => {
   const catId = randomUUID();
   const modelRaw = payload && payload.model;
@@ -628,22 +755,45 @@ ipcMain.on('new-cat-submit', (_event, payload) => {
       // ignore
     }
   }
-  const out = { ...payload, catId };
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('spawn-cat', out);
+  const runtime = normalizeRuntime(payload && payload.runtime);
+  try {
+    const file = getRuntimeSelectionPath();
+    fs.writeFileSync(file, JSON.stringify({ runtime }, null, 2), 'utf8');
+  } catch (e) {
+    // ignore
   }
+  const cloudRepo =
+    payload && payload.cloudRepo && typeof payload.cloudRepo === 'object'
+      ? {
+          url: typeof payload.cloudRepo.url === 'string' ? payload.cloudRepo.url.trim() : '',
+          startingRef:
+            typeof payload.cloudRepo.startingRef === 'string' ? payload.cloudRepo.startingRef.trim() : '',
+        }
+      : null;
+  if (runtime === 'cloud' && cloudRepo && cloudRepo.url) {
+    try {
+      const file = getCloudRepositorySelectionPath();
+      fs.writeFileSync(file, JSON.stringify(cloudRepo, null, 2), 'utf8');
+    } catch (e) {
+      // ignore
+    }
+  }
+  const out = { ...payload, catId };
+  if (modalWindow && !modalWindow.isDestroyed()) {
+    modalWindow.close();
+  }
+  sendSpawnCatToOverlay(out);
   startAgentForCat(
     {
       catId,
       folder: payload.folder,
       prompt: payload.prompt,
       model: modelId || undefined,
+      runtime,
+      cloudRepo,
     },
     { getMainWindow: () => mainWindow }
   );
-  if (modalWindow && !modalWindow.isDestroyed()) {
-    modalWindow.close();
-  }
 });
 
 ipcMain.on('new-cat-cancel', () => {
@@ -653,13 +803,7 @@ ipcMain.on('new-cat-cancel', () => {
 });
 
 ipcMain.on('resize-modal', (_event, { height } = {}) => {
-  if (!modalWindow || modalWindow.isDestroyed()) return;
-  if (typeof height !== 'number' || !Number.isFinite(height) || height <= 0) return;
-  const display = screen.getDisplayMatching(modalWindow.getBounds());
-  const maxHeight = Math.floor(display.workArea.height * 0.8);
-  const clamped = Math.min(Math.max(Math.ceil(height), 120), maxHeight);
-  const [w] = modalWindow.getContentSize();
-  modalWindow.setContentSize(w, clamped);
+  // No-op: modal is now a static 500px height
 });
 
 ipcMain.on('cat-counts', (_event, payload) => {

@@ -14,9 +14,12 @@ const execFileAsync = promisify(execFile);
  * Streams `run.stream()` into a per-cat conversation log for the UI.
  */
 
-/** @typedef {{ agent: import('@cursor/february').Agent, run: import('@cursor/february').Run | null, folder: string, modelId: string, busy: boolean, runPromise?: Promise<void> }} ActiveEntry */
+/** @typedef {'local' | 'cloud'} AgentRuntime */
+/** @typedef {{ url?: string, startingRef?: string }} CloudRepoConfig */
+/** @typedef {{ runtime: AgentRuntime, folder?: string, cloudRepo?: CloudRepoConfig | null }} AgentTarget */
+/** @typedef {{ agent: import('@cursor/sdk/agent').SDKAgent, run: import('@cursor/sdk/agent').Run | null, folder: string, modelId: string, runtime: AgentRuntime, cloudRepoUrl?: string, cloudStartingRef?: string, busy: boolean, runPromise?: Promise<void> }} ActiveEntry */
 
-/** @type {Map<string, { folder: string, prompt: string, items: Array<{ kind: string, text: string, at: number, streamId?: string }>, runStatus: string, endResult?: string, durationMs?: number, activeAssistantBubble?: boolean, answerHtmlFileUrl?: string, answerHtmlWriteError?: string, snapshotTree?: string, headShaAtSnapshot?: string, snapshotCapturedAt?: number, reverted?: boolean, revertError?: string }>} */
+/** @type {Map<string, { runtime?: AgentRuntime, folder: string, prompt: string, items: Array<{ kind: string, text: string, at: number, streamId?: string }>, runStatus: string, endResult?: string, durationMs?: number, activeAssistantBubble?: boolean, answerHtmlFileUrl?: string, answerHtmlWriteError?: string, snapshotTree?: string, headShaAtSnapshot?: string, snapshotCapturedAt?: number, reverted?: boolean, revertError?: string, cloudRepoUrl?: string, cloudStartingRef?: string, gitBranches?: Array<{ repoUrl: string, branch?: string, prUrl?: string }> }>} */
 const conversations = new Map();
 
 /** @type {Map<string, ActiveEntry>} */
@@ -287,6 +290,51 @@ function now() {
   return Date.now();
 }
 
+function normalizeRuntime(value) {
+  return String(value || '').trim().toLowerCase() === 'cloud' ? 'cloud' : 'local';
+}
+
+function normalizeCloudRepoConfig(value) {
+  if (!value || typeof value !== 'object') return null;
+  const url = typeof value.url === 'string' ? value.url.trim() : '';
+  if (!url) return null;
+  const startingRef = typeof value.startingRef === 'string' ? value.startingRef.trim() : '';
+  return { url, startingRef };
+}
+
+function normalizeAgentTarget({ runtime, folder, cloudRepo } = {}) {
+  const rt = normalizeRuntime(runtime);
+  const repo = normalizeCloudRepoConfig(cloudRepo);
+  return {
+    runtime: rt,
+    folder: rt === 'local' ? String(folder || '') : '',
+    cloudRepo: rt === 'cloud' ? repo : null,
+  };
+}
+
+function sameAgentTarget(entry, target, modelId) {
+  if (!entry) return false;
+  if (entry.modelId !== modelId || entry.runtime !== target.runtime) return false;
+  if (target.runtime === 'cloud') {
+    const repo = target.cloudRepo || {};
+    return (
+      entry.cloudRepoUrl === String(repo.url || '') &&
+      String(entry.cloudStartingRef || '') === String(repo.startingRef || '')
+    );
+  }
+  return entry.folder === target.folder;
+}
+
+function getConversationLocationLabel(rec) {
+  if (!rec) return '';
+  if (rec.runtime === 'cloud') {
+    const bits = ['Cloud', rec.cloudRepoUrl].filter(Boolean);
+    if (rec.cloudStartingRef) bits.push(`ref ${rec.cloudStartingRef}`);
+    return bits.join(' · ');
+  }
+  return rec.folder || '';
+}
+
 /**
  * Captures a git tree object for the current working tree (tracked + untracked, .gitignore respected)
  * using a temp index, without touching the user's real index. Returns null if not a git worktree
@@ -423,7 +471,7 @@ async function disposeAgentResources(catId, opts = {}) {
 }
 
 /**
- * @param {import('@cursor/february').SDKMessage} ev
+ * @param {import('@cursor/sdk').SDKMessage} ev
  * @param {string} catId
  */
 function applyStreamMessage(ev, catId) {
@@ -548,7 +596,7 @@ function applyStreamMessage(ev, catId) {
 }
 
 /**
- * @param {import('@cursor/february').Run} run
+ * @param {import('@cursor/sdk/agent').Run} run
  * @param {string} catId
  */
 async function drainStream(run, catId) {
@@ -568,10 +616,13 @@ async function drainStream(run, catId) {
 
 /**
  * @param {string} catId
- * @param {{ folder: string, prompt: string, snapshotTree?: string, headShaAtSnapshot?: string | null, snapshotCapturedAt?: number }} params
+ * @param {{ runtime?: AgentRuntime, folder: string, prompt: string, cloudRepo?: CloudRepoConfig | null, snapshotTree?: string, headShaAtSnapshot?: string | null, snapshotCapturedAt?: number }} params
  */
-function initConversationState(catId, { folder, prompt, snapshotTree, headShaAtSnapshot, snapshotCapturedAt }) {
+function initConversationState(catId, { runtime, folder, prompt, cloudRepo, snapshotTree, headShaAtSnapshot, snapshotCapturedAt }) {
+  const rt = normalizeRuntime(runtime);
+  const repo = normalizeCloudRepoConfig(cloudRepo);
   conversations.set(catId, {
+    runtime: rt,
     folder: String(folder || ''),
     prompt: String(prompt || ''),
     items: prompt ? [{ kind: 'user', text: String(prompt), at: now() }] : [],
@@ -584,6 +635,9 @@ function initConversationState(catId, { folder, prompt, snapshotTree, headShaAtS
     snapshotCapturedAt: snapshotCapturedAt != null ? snapshotCapturedAt : undefined,
     reverted: false,
     revertError: undefined,
+    cloudRepoUrl: repo?.url,
+    cloudStartingRef: repo?.startingRef,
+    gitBranches: undefined,
   });
   onConversationPushed({ catId });
 }
@@ -594,7 +648,9 @@ function getAgentConversation(catId) {
   const hasSnapshot = !!c.snapshotTree;
   return {
     found: true,
+    runtime: c.runtime || 'local',
     folder: c.folder,
+    locationLabel: getConversationLocationLabel(c),
     prompt: c.prompt,
     items: c.items.map(({ kind, text, at }) => ({ kind, text, at })),
     runStatus: c.runStatus,
@@ -605,6 +661,15 @@ function getAgentConversation(catId) {
     canRevert: hasSnapshot,
     reverted: !!c.reverted,
     revertError: c.revertError != null ? String(c.revertError) : null,
+    cloudRepoUrl: c.cloudRepoUrl || null,
+    cloudStartingRef: c.cloudStartingRef || null,
+    gitBranches: Array.isArray(c.gitBranches)
+      ? c.gitBranches.map((b) => ({
+          repoUrl: b && b.repoUrl != null ? String(b.repoUrl) : '',
+          branch: b && b.branch != null ? String(b.branch) : undefined,
+          prUrl: b && b.prUrl != null ? String(b.prUrl) : undefined,
+        }))
+      : [],
   };
 }
 
@@ -634,19 +699,21 @@ const DEFAULT_AGENT_MODEL_ID = 'composer-2';
  * @param {string} catId
  * @param {(payload: { catId: string, status: string, result?: string, durationMs?: number, finishBubbleLine?: string }) => void} notify
  * @param {Console} log
- * @param {string} folder
+ * @param {AgentTarget} target
  * @param {string} [modelId]
  */
-async function ensureAgent(catId, folder, notify, log, modelId) {
+async function ensureAgent(catId, target, notify, log, modelId) {
   const id = String(catId);
-  const folderStr = String(folder || '');
+  const normalizedTarget = normalizeAgentTarget(target);
+  const folderStr = normalizedTarget.folder;
+  const repo = normalizedTarget.cloudRepo;
   const modelIdStr = String(modelId || '').trim() || DEFAULT_AGENT_MODEL_ID;
   const existing = active.get(id);
 
-  if (existing && existing.agent && existing.folder === folderStr && existing.modelId === modelIdStr) {
+  if (existing && existing.agent && sameAgentTarget(existing, normalizedTarget, modelIdStr)) {
     return existing.agent;
   }
-  if (existing && existing.agent && (existing.folder !== folderStr || existing.modelId !== modelIdStr)) {
+  if (existing && existing.agent && !sameAgentTarget(existing, normalizedTarget, modelIdStr)) {
     await disposeAgentResources(id, { log });
   }
 
@@ -655,15 +722,41 @@ async function ensureAgent(catId, folder, notify, log, modelId) {
     throw new Error('CURSOR_API_KEY is not set');
   }
 
-  const { Agent } = require('@cursor/february/agent');
+  const { Agent } = require('@cursor/sdk/agent');
   /** Tied to the desktop pet: short first lines read best in a tiny cat speech bubble. */
 
-  const agent = Agent.create({
+  const options = {
     apiKey,
     model: { id: modelIdStr },
-    local: { cwd: folderStr },
+  };
+  if (normalizedTarget.runtime === 'cloud') {
+    if (!repo?.url) {
+      throw new Error('Choose a cloud repository.');
+    }
+    const repoConfig = { url: repo.url };
+    if (repo.startingRef) repoConfig.startingRef = repo.startingRef;
+    options.cloud = {
+      repos: [repoConfig],
+      autoCreatePR: true,
+    };
+  } else {
+    options.local = {
+      cwd: folderStr,
+      settingSources: ['project', 'user', 'team', 'plugins'],
+    };
+  }
+
+  const agent = await Agent.create(options);
+  active.set(id, {
+    agent,
+    run: null,
+    folder: folderStr,
+    modelId: modelIdStr,
+    runtime: normalizedTarget.runtime,
+    cloudRepoUrl: repo?.url,
+    cloudStartingRef: repo?.startingRef,
+    busy: false,
   });
-  active.set(id, { agent, run: null, folder: folderStr, modelId: modelIdStr, busy: false });
   return agent;
 }
 
@@ -743,6 +836,13 @@ function runOnAgent(catId, notify, log, prompt) {
           } else {
             r.durationMs = undefined;
           }
+          if (result && result.git && Array.isArray(result.git.branches)) {
+            r.gitBranches = result.git.branches.map((b) => ({
+              repoUrl: b && b.repoUrl != null ? String(b.repoUrl) : '',
+              branch: b && b.branch != null ? String(b.branch) : undefined,
+              prUrl: b && b.prUrl != null ? String(b.prUrl) : undefined,
+            }));
+          }
           r.activeAssistantBubble = false;
           commitAnswerHtmlPage(id, r, log);
           onConversationPushed({ catId: id });
@@ -789,14 +889,17 @@ function runOnAgent(catId, notify, log, prompt) {
   return work;
 }
 
-async function runAgentLifecycle({ catId, folder, prompt, model, notify, log }) {
+async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudRepo, notify, log }) {
   const id = String(catId);
+  const target = normalizeAgentTarget({ runtime, folder, cloudRepo });
   const apiKey = process.env.CURSOR_API_KEY;
   if (!apiKey) {
     log.warn('CURSOR_API_KEY is not set; the run will not execute.');
     const noKeyMsg = 'Set CURSOR_API_KEY in the environment to run the agent.';
+    const repo = target.cloudRepo;
     conversations.set(id, {
-      folder: String(folder || ''),
+      runtime: target.runtime,
+      folder: target.folder,
       prompt: String(prompt || ''),
       items: prompt ? [{ kind: 'user', text: String(prompt), at: now() }] : [],
       runStatus: 'error',
@@ -809,6 +912,9 @@ async function runAgentLifecycle({ catId, folder, prompt, model, notify, log }) 
       snapshotCapturedAt: undefined,
       reverted: false,
       revertError: undefined,
+      cloudRepoUrl: repo?.url,
+      cloudStartingRef: repo?.startingRef,
+      gitBranches: undefined,
     });
     const recNoKey = conversations.get(id);
     if (recNoKey) commitAnswerHtmlPage(id, recNoKey, log);
@@ -817,17 +923,20 @@ async function runAgentLifecycle({ catId, folder, prompt, model, notify, log }) 
     return;
   }
 
-  const snap = await captureGitSnapshotForFolder(String(folder), log);
+  const snap =
+    target.runtime === 'local' ? await captureGitSnapshotForFolder(String(target.folder), log) : null;
   initConversationState(id, {
-    folder,
+    runtime: target.runtime,
+    folder: target.folder,
     prompt,
+    cloudRepo: target.cloudRepo,
     snapshotTree: snap?.tree,
     headShaAtSnapshot: snap?.headSha != null ? snap.headSha : undefined,
     snapshotCapturedAt: snap?.capturedAt,
   });
 
   try {
-    await ensureAgent(id, folder, notify, log, model);
+    await ensureAgent(id, target, notify, log, model);
   } catch (e) {
     log.warn('Failed to create Cursor agent', e);
     const rec = conversations.get(id);
@@ -850,13 +959,15 @@ async function runAgentLifecycle({ catId, folder, prompt, model, notify, log }) 
  * Starts an async agent run for this cat. Does not block. Completion is
  * reported via `agent-finished` on the main window.
  */
-function startAgentForCat({ catId, folder, prompt, model }, { getMainWindow, log = console } = {}) {
+function startAgentForCat({ catId, folder, prompt, model, runtime, cloudRepo }, { getMainWindow, log = console } = {}) {
   const notify = getNotify(getMainWindow);
   void runAgentLifecycle({
     catId: String(catId),
     folder,
     prompt,
     model,
+    runtime,
+    cloudRepo,
     notify,
     log,
   });

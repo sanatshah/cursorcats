@@ -19,6 +19,7 @@ const answerPageErr = document.getElementById('answer-page-error');
 const answerPreviewPane = document.getElementById('answer-preview-pane');
 const answerPreviewIframe = document.getElementById('answer-preview-iframe');
 const conversationSection = document.getElementById('conversation-section');
+const cloudResultRow = document.getElementById('cloud-result-row');
 /** @type {string | null} */
 let answerPageUrl = null;
 /** @type {string | null} */
@@ -102,6 +103,42 @@ function updateRevertErrorRow(data) {
   }
   revertErrorRow.hidden = false;
   revertErrorEl.textContent = `Could not revert: ${data.revertError}`;
+}
+
+function updateCloudResultRow(data) {
+  if (!cloudResultRow) return;
+  if (!data || !data.found || data.runtime !== 'cloud') {
+    cloudResultRow.hidden = true;
+    cloudResultRow.innerHTML = '';
+    return;
+  }
+  const branches = Array.isArray(data.gitBranches) ? data.gitBranches : [];
+  const prLinks = branches.filter((b) => b && b.prUrl).map((b) => String(b.prUrl));
+  const branchNames = branches.filter((b) => b && b.branch).map((b) => String(b.branch));
+  const repo = data.cloudRepoUrl ? String(data.cloudRepoUrl) : '';
+  const ref = data.cloudStartingRef ? String(data.cloudStartingRef) : '';
+  const metaBits = ['Cloud'];
+  if (repo) metaBits.push(repo);
+  if (ref) metaBits.push(`ref ${ref}`);
+
+  const linksHtml = prLinks
+    .map((url, i) => {
+      const label = prLinks.length > 1 ? `Open PR ${i + 1}` : 'Open PR';
+      return `<button type="button" class="cloud-result-link" data-url="${escapeText(url)}">${escapeText(label)}</button>`;
+    })
+    .join(' ');
+  const branchHtml =
+    prLinks.length === 0 && branchNames.length > 0
+      ? `Branch: ${escapeText(branchNames.join(', '))}`
+      : prLinks.length === 0
+        ? 'PR link will appear here when Cursor returns it.'
+        : '';
+
+  cloudResultRow.hidden = false;
+  cloudResultRow.innerHTML = `
+    <span class="cloud-result-meta">${escapeText(metaBits.join(' · '))}</span>
+    ${linksHtml || `<span>${branchHtml}</span>`}
+  `;
 }
 
 function clearAnswerPreview() {
@@ -204,6 +241,7 @@ async function render() {
     updateAnswerPagePanel(null);
     updateRevertFromData(null);
     updateRevertErrorRow(null);
+    updateCloudResultRow(null);
     return;
   }
   const data = await window.cursorcats.getAgentConversation(catId);
@@ -214,12 +252,14 @@ async function render() {
     updateAnswerPagePanel(null);
     updateRevertFromData(null);
     updateRevertErrorRow(null);
+    updateCloudResultRow(null);
     return;
   }
 
-  if (data.folder) {
+  if (data.locationLabel || data.folder) {
     metaEl.hidden = false;
-    metaEl.textContent = data.prompt ? `${data.folder} — “${data.prompt}”` : data.folder;
+    const location = data.locationLabel || data.folder;
+    metaEl.textContent = data.prompt ? `${location} — “${data.prompt}”` : location;
   } else {
     metaEl.hidden = true;
   }
@@ -240,6 +280,7 @@ async function render() {
   updateAnswerPagePanel(data);
   updateRevertFromData(data);
   updateRevertErrorRow(data);
+  updateCloudResultRow(data);
 }
 
 function sendFollowup() {
@@ -302,6 +343,17 @@ if (revertBtn) {
     } finally {
       revertInFlight = false;
       void render();
+    }
+  });
+}
+
+if (cloudResultRow) {
+  cloudResultRow.addEventListener('click', (e) => {
+    const target = e.target;
+    const btn = target && typeof target.closest === 'function' ? target.closest('[data-url]') : null;
+    const url = btn && btn.getAttribute('data-url');
+    if (url && typeof window.cursorcats?.openExternalUrl === 'function') {
+      void window.cursorcats.openExternalUrl(url);
     }
   });
 }

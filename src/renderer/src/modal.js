@@ -39,6 +39,15 @@ const recentFoldersList = document.getElementById('recent-folders-list');
 const modelPicker = document.getElementById('model-picker');
 const modelChipLabel = document.getElementById('model-chip-label');
 const modelMenu = document.getElementById('model-menu');
+const btnCreateCat = document.getElementById('btn-create-cat');
+const runtimeLocalBtn = document.getElementById('runtime-local');
+const runtimeCloudBtn = document.getElementById('runtime-cloud');
+const projectSectionTitle = document.getElementById('project-section-title');
+const localProjectSection = document.getElementById('local-project-section');
+const cloudProjectSection = document.getElementById('cloud-project-section');
+const cloudReposList = document.getElementById('cloud-repos-list');
+const cloudStartingRefInput = document.getElementById('cloud-starting-ref');
+const cloudRepoSearchInput = document.getElementById('cloud-repo-search');
 
 const DEFAULT_MODEL_ID = 'composer-2';
 
@@ -48,6 +57,13 @@ let selectedModelId = DEFAULT_MODEL_ID;
 let modelMenuOpen = false;
 
 let selectedFolder = '';
+/** @type {'local' | 'cloud'} */
+let selectedRuntime = 'local';
+/** @type {Array<{ url: string }>} */
+let cloudReposListData = [];
+let selectedCloudRepoUrl = '';
+let cloudReposLoaded = false;
+let cloudReposLoadingPromise = null;
 
 function setError(msg) {
   if (!msg) {
@@ -62,6 +78,16 @@ function setError(msg) {
 function syncFolderDisplay() {
   document.querySelectorAll('.recent-folder-item').forEach(el => {
     if (el.dataset.folder === selectedFolder) {
+      el.classList.add('selected');
+    } else {
+      el.classList.remove('selected');
+    }
+  });
+}
+
+function syncCloudRepoDisplay() {
+  document.querySelectorAll('.cloud-repo-item').forEach(el => {
+    if (el.dataset.repoUrl === selectedCloudRepoUrl) {
       el.classList.add('selected');
     } else {
       el.classList.remove('selected');
@@ -125,6 +151,98 @@ function addFolderToList(folder, isSelected, append = false) {
   recentFoldersContainer.hidden = false;
 }
 
+function repoDisplayName(url) {
+  const u = String(url || '').replace(/\/$/, '');
+  const parts = u.split('/');
+  const name = parts.slice(-2).join('/');
+  return name || u;
+}
+
+function addCloudRepoToList(repo, isSelected) {
+  if (!cloudReposList || !repo || !repo.url) return;
+  const item = document.createElement('div');
+  item.className = 'list-item cloud-repo-item';
+  if (isSelected) item.classList.add('selected');
+  item.dataset.repoUrl = repo.url;
+
+  const iconDiv = document.createElement('div');
+  iconDiv.className = 'item-icon';
+  iconDiv.innerHTML = `
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+      <path d="M8 13h8"></path>
+    </svg>
+  `;
+
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'item-content';
+
+  const titleDiv = document.createElement('div');
+  titleDiv.className = 'item-title';
+  titleDiv.textContent = repoDisplayName(repo.url);
+
+  const subtitleDiv = document.createElement('div');
+  subtitleDiv.className = 'item-subtitle';
+  subtitleDiv.textContent = repo.url;
+
+  contentDiv.appendChild(titleDiv);
+  contentDiv.appendChild(subtitleDiv);
+  item.appendChild(iconDiv);
+  item.appendChild(contentDiv);
+
+  item.addEventListener('click', () => {
+    selectedCloudRepoUrl = repo.url;
+    syncCloudRepoDisplay();
+    promptEl.focus();
+  });
+
+  cloudReposList.appendChild(item);
+}
+
+function filteredCloudRepositories() {
+  const q = cloudRepoSearchInput ? cloudRepoSearchInput.value.trim().toLowerCase() : '';
+  if (!q) return cloudReposListData;
+  return cloudReposListData.filter((repo) => {
+    const url = String(repo.url || '').toLowerCase();
+    const name = repoDisplayName(repo.url).toLowerCase();
+    return url.includes(q) || name.includes(q);
+  });
+}
+
+function renderCloudRepositories() {
+  if (!cloudReposList) return;
+  cloudReposList.innerHTML = '';
+  const visibleRepos = filteredCloudRepositories();
+
+  if (cloudReposListData.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'list-item';
+    empty.innerHTML = `
+      <div class="item-content">
+        <div class="item-title">No connected repositories</div>
+        <div class="item-subtitle">Connect GitHub repositories in Cursor to use cloud cats.</div>
+      </div>
+    `;
+    cloudReposList.appendChild(empty);
+  } else if (visibleRepos.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'list-item';
+    empty.innerHTML = `
+      <div class="item-content">
+        <div class="item-title">No matching repositories</div>
+        <div class="item-subtitle">Try a different owner, repo name, or URL.</div>
+      </div>
+    `;
+    cloudReposList.appendChild(empty);
+  } else {
+    visibleRepos.forEach((repo) => {
+      addCloudRepoToList(repo, repo.url === selectedCloudRepoUrl);
+    });
+  }
+  syncCloudRepoDisplay();
+  syncPromptHeight();
+}
+
 async function loadRecentFolders() {
   if (!window.cursorcats?.getRecentFolders) return;
   try {
@@ -143,6 +261,101 @@ async function loadRecentFolders() {
     // ignore
   }
   syncPromptHeight();
+}
+
+async function loadCloudRepositories() {
+  if (!cloudReposList) return;
+  cloudReposList.innerHTML = '';
+  cloudReposList.textContent = 'Loading repositories...';
+  if (!window.cursorcats?.listCloudRepositories) {
+    cloudReposList.textContent = 'Cloud repositories are unavailable.';
+    return;
+  }
+  try {
+    const repos = await window.cursorcats.listCloudRepositories();
+    cloudReposListData = Array.isArray(repos) ? repos.filter((r) => r && r.url) : [];
+  } catch {
+    cloudReposListData = [];
+  }
+
+  let saved = null;
+  if (window.cursorcats?.getSelectedCloudRepository) {
+    try {
+      saved = await window.cursorcats.getSelectedCloudRepository();
+    } catch {
+      saved = null;
+    }
+  }
+  const savedUrl = saved && saved.url ? String(saved.url).trim() : '';
+  if (saved && cloudStartingRefInput && typeof saved.startingRef === 'string') {
+    cloudStartingRefInput.value = saved.startingRef;
+  }
+  if (savedUrl && cloudReposListData.some((r) => r.url === savedUrl)) {
+    selectedCloudRepoUrl = savedUrl;
+  } else if (!selectedCloudRepoUrl && cloudReposListData.length > 0) {
+    selectedCloudRepoUrl = cloudReposListData[0].url;
+  }
+
+  renderCloudRepositories();
+}
+
+function ensureCloudRepositoriesLoaded() {
+  if (cloudReposLoaded) return Promise.resolve();
+  if (cloudReposLoadingPromise) return cloudReposLoadingPromise;
+  cloudReposLoadingPromise = loadCloudRepositories()
+    .then(() => {
+      cloudReposLoaded = true;
+    })
+    .finally(() => {
+      cloudReposLoadingPromise = null;
+    });
+  return cloudReposLoadingPromise;
+}
+
+function normalizeRuntime(value) {
+  return String(value || '').trim().toLowerCase() === 'cloud' ? 'cloud' : 'local';
+}
+
+function syncRuntimeDisplay() {
+  selectedRuntime = normalizeRuntime(selectedRuntime);
+  const cloud = selectedRuntime === 'cloud';
+  if (runtimeLocalBtn) {
+    runtimeLocalBtn.classList.toggle('selected', !cloud);
+    runtimeLocalBtn.setAttribute('aria-checked', cloud ? 'false' : 'true');
+  }
+  if (runtimeCloudBtn) {
+    runtimeCloudBtn.classList.toggle('selected', cloud);
+    runtimeCloudBtn.setAttribute('aria-checked', cloud ? 'true' : 'false');
+  }
+  if (localProjectSection) localProjectSection.hidden = cloud;
+  if (cloudProjectSection) cloudProjectSection.hidden = !cloud;
+  if (projectSectionTitle) projectSectionTitle.textContent = cloud ? 'Cloud Repositories' : 'Projects';
+  if (hintEl) {
+    if (cloud) {
+      hintEl.innerHTML = '<kbd>Esc</kbd> cancel';
+    } else if (isApple) {
+      hintEl.innerHTML = '<kbd>⌘</kbd>+<kbd>O</kbd> folder · <kbd>Esc</kbd> cancel';
+    } else {
+      hintEl.innerHTML = '<kbd>Ctrl</kbd>+<kbd>O</kbd> folder · <kbd>Esc</kbd> cancel';
+    }
+  }
+  syncPromptHeight();
+}
+
+async function selectRuntime(runtime) {
+  selectedRuntime = normalizeRuntime(runtime);
+  syncRuntimeDisplay();
+  if (selectedRuntime === 'cloud') {
+    void ensureCloudRepositoriesLoaded();
+  }
+  if (window.cursorcats?.setSelectedRuntime) {
+    try {
+      await window.cursorcats.setSelectedRuntime(selectedRuntime);
+    } catch {
+      /* ignore */
+    }
+  }
+  promptEl.focus();
 }
 
 async function onChooseFolder() {
@@ -164,23 +377,48 @@ async function onChooseFolder() {
 function submit() {
   setError('');
   const prompt = (promptEl.value || '').trim();
-  if (!selectedFolder.trim()) {
-    setError('Choose a folder.');
-    return;
+  const runtime = normalizeRuntime(selectedRuntime);
+  if (runtime === 'local') {
+    if (!selectedFolder.trim()) {
+      setError('Choose a folder.');
+      return;
+    }
+  } else {
+    if (!selectedCloudRepoUrl.trim()) {
+      setError('Choose a cloud repository.');
+      return;
+    }
   }
   if (!prompt) {
     setError('Enter a prompt.');
     return;
   }
-  if (window.cursorcats?.addRecentFolder) {
+  if (runtime === 'local' && window.cursorcats?.addRecentFolder) {
     window.cursorcats.addRecentFolder(selectedFolder);
+  }
+  const startingRef = cloudStartingRefInput ? cloudStartingRefInput.value.trim() : '';
+  if (runtime === 'cloud' && window.cursorcats?.setSelectedCloudRepository) {
+    window.cursorcats.setSelectedCloudRepository({
+      url: selectedCloudRepoUrl,
+      startingRef,
+    });
   }
   if (window.cursorcats?.submitNewCat) {
     window.cursorcats.submitNewCat({
-      folder: selectedFolder,
+      folder: runtime === 'local' ? selectedFolder : '',
       prompt,
       model: selectedModelId,
+      runtime,
+      cloudRepo:
+        runtime === 'cloud'
+          ? {
+              url: selectedCloudRepoUrl,
+              startingRef,
+            }
+          : null,
     });
+  } else {
+    setError('Could not reach the app. Try reopening CursorCats.');
   }
 }
 
@@ -314,6 +552,46 @@ if (modelPicker) {
   });
 }
 
+if (runtimeLocalBtn) {
+  runtimeLocalBtn.addEventListener('click', () => {
+    void selectRuntime('local');
+  });
+}
+
+if (runtimeCloudBtn) {
+  runtimeCloudBtn.addEventListener('click', () => {
+    void selectRuntime('cloud');
+  });
+}
+
+if (cloudStartingRefInput) {
+  cloudStartingRefInput.addEventListener('input', () => {
+    syncPromptHeight();
+  });
+  cloudStartingRefInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submit();
+    }
+  });
+}
+
+if (cloudRepoSearchInput) {
+  cloudRepoSearchInput.addEventListener('input', () => {
+    renderCloudRepositories();
+  });
+  cloudRepoSearchInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const first = filteredCloudRepositories()[0];
+    if (first && first.url) {
+      selectedCloudRepoUrl = first.url;
+      syncCloudRepoDisplay();
+      promptEl.focus();
+    }
+  });
+}
+
 document.addEventListener(
   'mousedown',
   (e) => {
@@ -329,6 +607,12 @@ document.addEventListener(
 btnChoose.addEventListener('click', () => {
   onChooseFolder();
 });
+
+if (btnCreateCat) {
+  btnCreateCat.addEventListener('click', () => {
+    submit();
+  });
+}
 
 function syncPromptHeight() {
   if (!promptEl) return;
@@ -368,6 +652,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     cancel();
   } else if (e.key === 'o' && (e.metaKey || e.ctrlKey)) {
+    if (selectedRuntime !== 'local') return;
     e.preventDefault();
     onChooseFolder();
   }
@@ -376,50 +661,14 @@ document.addEventListener('keydown', (e) => {
 const wrap = document.querySelector('.wrap');
 const header = document.querySelector('.header');
 const sectionTitle = document.querySelector('.section-title');
-const listEl = document.querySelector('.list');
+const listEls = Array.from(document.querySelectorAll('.list'));
 const footer = document.querySelector('.footer');
 
-function measureListNaturalHeight() {
-  // .list has flex: 1, so its clientHeight/scrollHeight expand to fill the
-  // window — using them here creates a resize feedback loop. Sum the direct
-  // children's offsetHeights (plus the list's own vertical padding) to get
-  // the true intrinsic content height instead.
-  if (!listEl) return 0;
-  const style = getComputedStyle(listEl);
-  const padding =
-    parseFloat(style.paddingTop || '0') + parseFloat(style.paddingBottom || '0');
-  let total = padding;
-  for (const child of listEl.children) {
-    if (child.hidden || child.offsetParent === null) continue;
-    const rect = child.getBoundingClientRect();
-    if (rect.height > 0) total += rect.height;
-  }
-  return total;
-}
-
 function pushContentHeight() {
-  if (!window.cursorcats?.resizeModal || !wrap) return;
-  const bodyStyle = getComputedStyle(document.body);
-  const bodyPad =
-    parseFloat(bodyStyle.paddingTop || '0') + parseFloat(bodyStyle.paddingBottom || '0');
-  const wrapStyle = getComputedStyle(wrap);
-  const wrapBorder =
-    parseFloat(wrapStyle.borderTopWidth || '0') + parseFloat(wrapStyle.borderBottomWidth || '0');
-  const wrapPadY =
-    parseFloat(wrapStyle.paddingTop || '0') + parseFloat(wrapStyle.paddingBottom || '0');
-  const headerH = header ? header.getBoundingClientRect().height : 0;
-  const sectionH = sectionTitle ? sectionTitle.getBoundingClientRect().height : 0;
-  const footerH = footer ? footer.getBoundingClientRect().height : 0;
-  const listNatural = measureListNaturalHeight();
-  const total = bodyPad + wrapBorder + wrapPadY + headerH + sectionH + listNatural + footerH;
-  window.cursorcats.resizeModal(total);
+  // No-op: modal is now a static 500px height
 }
 
 if (typeof ResizeObserver !== 'undefined') {
-  const ro = new ResizeObserver(() => pushContentHeight());
-  if (header) ro.observe(header);
-  if (footer) ro.observe(footer);
-  if (sectionTitle) ro.observe(sectionTitle);
   if (modelMenu) {
     const rom = new ResizeObserver(() => {
       if (modelMenuOpen) syncModelMenuWrapPadding();
@@ -427,15 +676,12 @@ if (typeof ResizeObserver !== 'undefined') {
     rom.observe(modelMenu);
   }
 }
-const mo = new MutationObserver(() => pushContentHeight());
-if (recentFoldersList) {
-  mo.observe(recentFoldersList, { childList: true, subtree: true });
-}
 window.addEventListener('load', () => {
   syncPromptHeight();
 });
 
 void (async () => {
+  syncRuntimeDisplay();
   await Promise.all([loadRecentFolders(), initModels()]);
   promptEl.focus();
   syncPromptHeight();

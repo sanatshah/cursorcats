@@ -1927,6 +1927,9 @@
       if (PERCH_ON_OTHER_WINDOWS && typeof window.cursorcats.getFrontmostWindowInfo === 'function') {
         startStabilityNudgeLoop();
       }
+      if (typeof window.cursorcats.overlayReady === 'function') {
+        window.cursorcats.overlayReady();
+      }
       canvas.addEventListener('click', (e) => {
         const cat = pickCatAt(e.clientX, e.clientY);
         if (cat && cat.catId && typeof window.cursorcats.openCatConversation === 'function') {
