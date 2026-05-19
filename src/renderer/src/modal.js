@@ -39,6 +39,7 @@ const recentFoldersList = document.getElementById('recent-folders-list');
 const modelPicker = document.getElementById('model-picker');
 const modelChipLabel = document.getElementById('model-chip-label');
 const modelMenu = document.getElementById('model-menu');
+const skillMenu = document.getElementById('skill-menu');
 const btnCreateCat = document.getElementById('btn-create-cat');
 const runtimeLocalBtn = document.getElementById('runtime-local');
 const runtimeCloudBtn = document.getElementById('runtime-cloud');
@@ -51,7 +52,14 @@ const cloudRepoSearchInput = document.getElementById('cloud-repo-search');
 
 const DEFAULT_MODEL_ID = 'composer-2';
 
-/** @type {Array<{ id: string, displayName: string, description: string }>} */
+/**
+ * @typedef {{ id: string, value: string }} ModelParameterValue
+ * @typedef {{ id: string, displayName?: string, values: Array<{ value: string, displayName?: string }> }} ModelParameterDefinition
+ * @typedef {{ params: ModelParameterValue[], displayName: string, description?: string, isDefault?: boolean }} ModelVariant
+ * @typedef {{ id: string, displayName: string, description?: string, parameters?: ModelParameterDefinition[], variants?: ModelVariant[] }} SdkModelListItem
+ */
+
+/** @type {SdkModelListItem[]} */
 let modelsList = [];
 let selectedModelId = DEFAULT_MODEL_ID;
 let modelMenuOpen = false;
@@ -64,6 +72,207 @@ let cloudReposListData = [];
 let selectedCloudRepoUrl = '';
 let cloudReposLoaded = false;
 let cloudReposLoadingPromise = null;
+
+/** @type {Array<{ id: string, name: string, description: string, source: string }>} */
+let skillsList = [];
+/** @type {Array<{ id: string, name: string, description: string, source: string }>} */
+let selectedSkills = [];
+let skillMenuOpen = false;
+let skillHighlightIndex = 0;
+let skillsCacheKey = '';
+let skillsLoadingPromise = null;
+
+function skillsFolderForListing() {
+  return normalizeRuntime(selectedRuntime) === 'local' ? selectedFolder : '';
+}
+
+function invalidateSkillsCache() {
+  skillsCacheKey = '';
+  skillsList = [];
+}
+
+async function loadSkills() {
+  if (!window.cursorcats?.listSkills) {
+    skillsList = [];
+    skillsCacheKey = skillsFolderForListing();
+    return;
+  }
+  const folder = skillsFolderForListing();
+  try {
+    const list = await window.cursorcats.listSkills(folder);
+    skillsList = Array.isArray(list)
+      ? list.filter((s) => s && typeof s.name === 'string' && s.name.trim())
+      : [];
+  } catch {
+    skillsList = [];
+  }
+  skillsCacheKey = folder;
+}
+
+async function ensureSkillsLoaded() {
+  const key = skillsFolderForListing();
+  if (skillsCacheKey === key) return;
+  if (skillsLoadingPromise) return skillsLoadingPromise;
+  skillsLoadingPromise = loadSkills().finally(() => {
+    skillsLoadingPromise = null;
+  });
+  return skillsLoadingPromise;
+}
+
+/**
+ * @param {string} text
+ * @param {number} cursorPos
+ */
+function getSlashToken(text, cursorPos) {
+  const before = String(text || '').slice(0, cursorPos);
+  const m = before.match(/(?:^|\s)(\/[^\s]*)$/);
+  if (!m) return null;
+  const full = m[1];
+  const query = full.slice(1);
+  const start = cursorPos - full.length;
+  return { start, end: cursorPos, query, full };
+}
+
+/**
+ * @param {string} text
+ * @param {number} cursorPos
+ * @param {string} replacement
+ */
+function replaceSlashToken(text, cursorPos, replacement) {
+  const token = getSlashToken(text, cursorPos);
+  if (!token) return { text, cursorPos };
+  const nextText = text.slice(0, token.start) + replacement + text.slice(cursorPos);
+  return { text: nextText, cursorPos: token.start + replacement.length };
+}
+
+function filteredSkills(query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return skillsList;
+  return skillsList.filter((skill) => {
+    const name = String(skill.name || '').toLowerCase();
+    const desc = String(skill.description || '').toLowerCase();
+    return name.includes(q) || desc.includes(q);
+  });
+}
+
+function closeSkillMenu() {
+  if (!skillMenu) return;
+  skillMenuOpen = false;
+  skillHighlightIndex = 0;
+  skillMenu.hidden = true;
+  skillMenu.innerHTML = '';
+}
+
+function renderSkillMenu(items) {
+  if (!skillMenu) return;
+  skillMenu.innerHTML = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'skill-menu-empty';
+    empty.textContent = skillsList.length ? 'No matching skills' : 'No skills found';
+    skillMenu.appendChild(empty);
+    return;
+  }
+  items.forEach((skill, idx) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'skill-menu-item';
+    btn.setAttribute('role', 'option');
+    btn.dataset.skillId = skill.id;
+    btn.setAttribute('aria-selected', idx === skillHighlightIndex ? 'true' : 'false');
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'skill-menu-item-name';
+    const code = document.createElement('code');
+    code.textContent = `/${skill.name}`;
+    nameRow.appendChild(code);
+    const source = document.createElement('span');
+    source.className = 'skill-menu-item-source';
+    source.textContent = skill.source || 'skill';
+    nameRow.appendChild(source);
+    btn.appendChild(nameRow);
+
+    if (skill.description && skill.description.trim()) {
+      const desc = document.createElement('span');
+      desc.className = 'skill-menu-item-desc';
+      desc.textContent = skill.description.trim();
+      btn.appendChild(desc);
+    }
+
+    btn.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+    });
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      selectSkill(skill);
+    });
+    skillMenu.appendChild(btn);
+  });
+}
+
+function openSkillMenu(items) {
+  if (!skillMenu) return;
+  closeModelMenu();
+  skillMenuOpen = true;
+  skillHighlightIndex = 0;
+  skillMenu.hidden = false;
+  renderSkillMenu(items);
+}
+
+function updateSkillMenuFromPrompt() {
+  if (!promptEl) return;
+  const cursorPos = promptEl.selectionStart ?? promptEl.value.length;
+  const token = getSlashToken(promptEl.value, cursorPos);
+  if (!token) {
+    closeSkillMenu();
+    return;
+  }
+  void ensureSkillsLoaded().then(() => {
+    const items = filteredSkills(token.query);
+    if (!skillMenuOpen) {
+      openSkillMenu(items);
+    } else {
+      skillHighlightIndex = Math.min(skillHighlightIndex, Math.max(0, items.length - 1));
+      renderSkillMenu(items);
+    }
+  });
+}
+
+function selectSkill(skill) {
+  if (!promptEl || !skill) return;
+  const cursorPos = promptEl.selectionStart ?? promptEl.value.length;
+  const marker = `/${skill.name} `;
+  const { text, cursorPos: nextCursor } = replaceSlashToken(promptEl.value, cursorPos, marker);
+  promptEl.value = text;
+  promptEl.setSelectionRange(nextCursor, nextCursor);
+  if (!selectedSkills.some((s) => s.name === skill.name)) {
+    selectedSkills.push({
+      id: skill.id,
+      name: skill.name,
+      description: skill.description || '',
+      source: skill.source || '',
+    });
+  }
+  closeSkillMenu();
+  syncPromptHeight();
+  promptEl.focus();
+}
+
+function resolveSkillsForSubmit(promptText) {
+  /** @type {Map<string, { id: string, name: string, description: string, source: string }>} */
+  const byName = new Map();
+  for (const skill of selectedSkills) {
+    if (skill && skill.name) byName.set(skill.name, skill);
+  }
+  const re = /(?:^|\s)\/([a-z0-9-]+)/gi;
+  let m;
+  while ((m = re.exec(promptText)) !== null) {
+    const name = m[1];
+    const found = skillsList.find((s) => s.name === name);
+    if (found) byName.set(found.name, found);
+  }
+  return Array.from(byName.values());
+}
 
 function setError(msg) {
   if (!msg) {
@@ -139,6 +348,7 @@ function addFolderToList(folder, isSelected, append = false) {
   item.addEventListener('click', () => {
     selectedFolder = folder;
     syncFolderDisplay();
+    invalidateSkillsCache();
     promptEl.focus();
   });
   
@@ -345,6 +555,7 @@ function syncRuntimeDisplay() {
 async function selectRuntime(runtime) {
   selectedRuntime = normalizeRuntime(runtime);
   syncRuntimeDisplay();
+  invalidateSkillsCache();
   if (selectedRuntime === 'cloud') {
     void ensureCloudRepositoriesLoaded();
   }
@@ -367,6 +578,7 @@ async function onChooseFolder() {
       selectedFolder = picked;
       addFolderToList(picked, true, false);
       syncFolderDisplay();
+      invalidateSkillsCache();
       promptEl.focus();
     }
   } catch {
@@ -376,6 +588,7 @@ async function onChooseFolder() {
 
 function submit() {
   setError('');
+  closeSkillMenu();
   const prompt = (promptEl.value || '').trim();
   const runtime = normalizeRuntime(selectedRuntime);
   if (runtime === 'local') {
@@ -393,6 +606,7 @@ function submit() {
     setError('Enter a prompt.');
     return;
   }
+  const skills = resolveSkillsForSubmit(prompt);
   if (runtime === 'local' && window.cursorcats?.addRecentFolder) {
     window.cursorcats.addRecentFolder(selectedFolder);
   }
@@ -409,6 +623,7 @@ function submit() {
       prompt,
       model: selectedModelId,
       runtime,
+      skills,
       cloudRepo:
         runtime === 'cloud'
           ? {
@@ -478,6 +693,7 @@ function syncModelMenuWrapPadding() {
 
 function openModelMenu() {
   if (!modelMenu || !modelPicker) return;
+  closeSkillMenu();
   modelMenuOpen = true;
   modelMenu.hidden = false;
   modelPicker.setAttribute('aria-expanded', 'true');
@@ -506,9 +722,14 @@ async function selectModel(id) {
   updateModelChipLabel();
 }
 
+/** @returns {SdkModelListItem} */
+function fallbackModelListItem() {
+  return { id: DEFAULT_MODEL_ID, displayName: 'Composer 2', description: '' };
+}
+
 async function initModels() {
   if (!window.cursorcats?.listModels) {
-    modelsList = [{ id: DEFAULT_MODEL_ID, displayName: 'Composer 2', description: '' }];
+    modelsList = [fallbackModelListItem()];
     selectedModelId = DEFAULT_MODEL_ID;
     updateModelChipLabel();
     return;
@@ -518,10 +739,10 @@ async function initModels() {
     if (Array.isArray(list) && list.length > 0) {
       modelsList = list;
     } else {
-      modelsList = [{ id: DEFAULT_MODEL_ID, displayName: 'Composer 2', description: '' }];
+      modelsList = [fallbackModelListItem()];
     }
   } catch {
-    modelsList = [{ id: DEFAULT_MODEL_ID, displayName: 'Composer 2', description: '' }];
+    modelsList = [fallbackModelListItem()];
   }
   let saved = null;
   if (window.cursorcats?.getSelectedModel) {
@@ -595,8 +816,11 @@ if (cloudRepoSearchInput) {
 document.addEventListener(
   'mousedown',
   (e) => {
-    if (!modelMenuOpen || !modelPicker || !modelMenu) return;
     const t = e.target;
+    if (skillMenuOpen && skillMenu && promptEl && !promptEl.contains(t) && !skillMenu.contains(t)) {
+      closeSkillMenu();
+    }
+    if (!modelMenuOpen || !modelPicker || !modelMenu) return;
     if (modelPicker.contains(t)) return;
     if (modelMenu.contains(t)) return;
     closeModelMenu();
@@ -624,6 +848,15 @@ function syncPromptHeight() {
 
 promptEl.addEventListener('input', () => {
   syncPromptHeight();
+  updateSkillMenuFromPrompt();
+});
+
+promptEl.addEventListener('click', () => {
+  updateSkillMenuFromPrompt();
+});
+
+promptEl.addEventListener('keyup', () => {
+  updateSkillMenuFromPrompt();
 });
 
 window.addEventListener('resize', () => {
@@ -631,11 +864,45 @@ window.addEventListener('resize', () => {
 });
 
 promptEl.addEventListener('keydown', (e) => {
+  if (skillMenuOpen && skillMenu) {
+    const cursorPos = promptEl.selectionStart ?? promptEl.value.length;
+    const token = getSlashToken(promptEl.value, cursorPos);
+    const items = token ? filteredSkills(token.query) : [];
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!items.length) return;
+      skillHighlightIndex = (skillHighlightIndex + 1) % items.length;
+      renderSkillMenu(items);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!items.length) return;
+      skillHighlightIndex = (skillHighlightIndex - 1 + items.length) % items.length;
+      renderSkillMenu(items);
+      return;
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      if (items.length) {
+        e.preventDefault();
+        selectSkill(items[skillHighlightIndex] || items[0]);
+        return;
+      }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeSkillMenu();
+      return;
+    }
+  }
+
   if (e.key !== 'Enter') return;
   if (e.metaKey || e.ctrlKey) {
     e.preventDefault();
     insertNewlineAtCursor(promptEl);
     syncPromptHeight();
+    updateSkillMenuFromPrompt();
     return;
   }
   e.preventDefault();
@@ -644,6 +911,11 @@ promptEl.addEventListener('keydown', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    if (skillMenuOpen) {
+      e.preventDefault();
+      closeSkillMenu();
+      return;
+    }
     if (modelMenuOpen) {
       e.preventDefault();
       closeModelMenu();
@@ -682,7 +954,7 @@ window.addEventListener('load', () => {
 
 void (async () => {
   syncRuntimeDisplay();
-  await Promise.all([loadRecentFolders(), initModels()]);
+  await Promise.all([loadRecentFolders(), initModels(), ensureSkillsLoaded()]);
   promptEl.focus();
   syncPromptHeight();
 })();

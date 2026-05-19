@@ -20,14 +20,17 @@
           aria-label="Cursor Cat"
         ></div>
         <div class="header-input-col">
-          <textarea
-            id="prompt"
-            rows="1"
-            autocomplete="off"
-            placeholder="Meow, what should I work on?"
-            spellcheck="true"
-            autofocus
-          ></textarea>
+          <div class="prompt-input-wrap">
+            <textarea
+              id="prompt"
+              rows="1"
+              autocomplete="off"
+              placeholder="Meow, what should I work on?"
+              spellcheck="true"
+              autofocus
+            ></textarea>
+            <div id="skill-menu" class="skill-menu" role="listbox" aria-label="Skills" hidden></div>
+          </div>
           <div class="prompt-meta-wrap">
             <div class="prompt-meta">
               <button

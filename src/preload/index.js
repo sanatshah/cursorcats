@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('cursorcats', {
   getRecentFolders: () => ipcRenderer.invoke('get-recent-folders'),
   addRecentFolder: (folder) => ipcRenderer.invoke('add-recent-folder', folder),
   listModels: () => ipcRenderer.invoke('list-models'),
+  listSkills: (folder) => ipcRenderer.invoke('list-skills', folder),
   getSelectedModel: () => ipcRenderer.invoke('get-selected-model'),
   setSelectedModel: (modelId) => ipcRenderer.invoke('set-selected-model', modelId),
   listCloudRepositories: () => ipcRenderer.invoke('list-cloud-repositories'),

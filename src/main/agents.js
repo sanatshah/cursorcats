@@ -223,6 +223,31 @@ const CAT_TASK_SNIPPET_MAX = 420;
  * and the playful first line fits the actual task.
  * @param {string} userTask
  */
+/**
+ * @param {Array<{ name?: string, description?: string, source?: string }>} skills
+ */
+function buildSkillInstruction(skills) {
+  if (!Array.isArray(skills) || skills.length === 0) return '';
+  const lines = skills
+    .map((s) => {
+      const name = s && s.name != null ? String(s.name).trim() : '';
+      if (!name) return null;
+      const source = s && s.source != null ? String(s.source).trim() : 'unknown';
+      const desc =
+        s && s.description != null && String(s.description).trim()
+          ? `: ${String(s.description).trim().slice(0, 240)}`
+          : '';
+      return `- ${name} (${source})${desc}`;
+    })
+    .filter(Boolean);
+  if (!lines.length) return '';
+  return (
+    'Use the following Cursor Agent Skills for this run. Read each skill\'s SKILL.md and follow its instructions before starting implementation:\n\n' +
+    lines.join('\n') +
+    '\n\n'
+  );
+}
+
 function buildAddedSystemInstruction(userTask) {
   const task = String(userTask || '')
     .trim()
@@ -618,13 +643,24 @@ async function drainStream(run, catId) {
  * @param {string} catId
  * @param {{ runtime?: AgentRuntime, folder: string, prompt: string, cloudRepo?: CloudRepoConfig | null, snapshotTree?: string, headShaAtSnapshot?: string | null, snapshotCapturedAt?: number }} params
  */
-function initConversationState(catId, { runtime, folder, prompt, cloudRepo, snapshotTree, headShaAtSnapshot, snapshotCapturedAt }) {
+function initConversationState(catId, { runtime, folder, prompt, cloudRepo, skills, snapshotTree, headShaAtSnapshot, snapshotCapturedAt }) {
   const rt = normalizeRuntime(runtime);
   const repo = normalizeCloudRepoConfig(cloudRepo);
+  const skillList = Array.isArray(skills)
+    ? skills
+        .filter((s) => s && s.name)
+        .map((s) => ({
+          id: s.id != null ? String(s.id) : '',
+          name: String(s.name).trim(),
+          description: s.description != null ? String(s.description) : '',
+          source: s.source != null ? String(s.source) : '',
+        }))
+    : [];
   conversations.set(catId, {
     runtime: rt,
     folder: String(folder || ''),
     prompt: String(prompt || ''),
+    skills: skillList,
     items: prompt ? [{ kind: 'user', text: String(prompt), at: now() }] : [],
     runStatus: 'running',
     activeAssistantBubble: false,
@@ -805,10 +841,14 @@ function runOnAgent(catId, notify, log, prompt) {
   const work = (async () => {
     try {
       let run;
+      const recForSkills = conversations.get(id);
+      const skillExtra = buildSkillInstruction(recForSkills && recForSkills.skills);
       const addedSystemInstruction = buildAddedSystemInstruction(prompt);
       const htmlExtra = buildAnswerHtmlPageInstruction();
       try {
-        run = await entry.agent.send(String(addedSystemInstruction + htmlExtra + prompt));
+        run = await entry.agent.send(
+          String(addedSystemInstruction + skillExtra + htmlExtra + prompt)
+        );
       } catch (e) {
         log.warn('agent.send failed', e);
         const r = conversations.get(id);
@@ -911,7 +951,7 @@ function runOnAgent(catId, notify, log, prompt) {
   return work;
 }
 
-async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudRepo, notify, log }) {
+async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudRepo, skills, notify, log }) {
   const id = String(catId);
   const target = normalizeAgentTarget({ runtime, folder, cloudRepo });
   const apiKey = process.env.CURSOR_API_KEY;
@@ -952,6 +992,7 @@ async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudR
     folder: target.folder,
     prompt,
     cloudRepo: target.cloudRepo,
+    skills,
     snapshotTree: snap?.tree,
     headShaAtSnapshot: snap?.headSha != null ? snap.headSha : undefined,
     snapshotCapturedAt: snap?.capturedAt,
@@ -981,7 +1022,7 @@ async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudR
  * Starts an async agent run for this cat. Does not block. Completion is
  * reported via `agent-finished` on the main window.
  */
-function startAgentForCat({ catId, folder, prompt, model, runtime, cloudRepo }, { getMainWindow, log = console } = {}) {
+function startAgentForCat({ catId, folder, prompt, model, runtime, cloudRepo, skills }, { getMainWindow, log = console } = {}) {
   const notify = getNotify(getMainWindow);
   void runAgentLifecycle({
     catId: String(catId),
@@ -990,6 +1031,7 @@ function startAgentForCat({ catId, folder, prompt, model, runtime, cloudRepo }, 
     model,
     runtime,
     cloudRepo,
+    skills,
     notify,
     log,
   });

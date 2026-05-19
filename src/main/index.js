@@ -83,6 +83,7 @@ const {
   sendFollowup,
   revertAgentChanges,
 } = require('./agents');
+const { listAvailableSkills } = require('./skills');
 const { startHookServer } = require('./hook-server');
 const {
   handleIdeSessionStart,
@@ -654,6 +655,105 @@ ipcMain.handle('add-recent-folder', (_event, folder) => {
 
 const FALLBACK_MODEL_LIST = [{ id: 'composer-2', displayName: 'Composer 2', description: '' }];
 
+/**
+ * @param {unknown} raw
+ * @returns {{ id: string, value: string } | null}
+ */
+function normalizeModelParameterValue(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  const value = typeof raw.value === 'string' ? raw.value.trim() : '';
+  if (!id || !value) return null;
+  return { id, value };
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {{ id: string, displayName?: string, values: Array<{ value: string, displayName?: string }> } | null}
+ */
+function normalizeModelParameterDefinition(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  if (!id) return null;
+  const values = Array.isArray(raw.values)
+    ? raw.values
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null;
+          const value = typeof entry.value === 'string' ? entry.value.trim() : '';
+          if (!value) return null;
+          const item = { value };
+          if (typeof entry.displayName === 'string' && entry.displayName.trim()) {
+            item.displayName = entry.displayName.trim();
+          }
+          return item;
+        })
+        .filter(Boolean)
+    : [];
+  if (values.length === 0) return null;
+  const out = { id, values };
+  if (typeof raw.displayName === 'string' && raw.displayName.trim()) {
+    out.displayName = raw.displayName.trim();
+  }
+  return out;
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {{ params: Array<{ id: string, value: string }>, displayName: string, description?: string, isDefault?: boolean } | null}
+ */
+function normalizeModelVariant(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const displayName =
+    typeof raw.displayName === 'string' && raw.displayName.trim()
+      ? raw.displayName.trim()
+      : '';
+  if (!displayName) return null;
+  const params = Array.isArray(raw.params)
+    ? raw.params.map(normalizeModelParameterValue).filter(Boolean)
+    : [];
+  const out = { params, displayName };
+  if (typeof raw.description === 'string' && raw.description.trim()) {
+    out.description = raw.description.trim();
+  }
+  if (raw.isDefault === true) {
+    out.isDefault = true;
+  }
+  return out;
+}
+
+/**
+ * Normalize Cursor.models.list() items per SDK ModelListItem shape.
+ * @param {unknown} raw
+ * @returns {{ id: string, displayName: string, description: string, parameters?: Array<object>, variants?: Array<object> } | null}
+ */
+function normalizeSdkModelListItem(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  if (!id) return null;
+  const displayName =
+    typeof raw.displayName === 'string' && raw.displayName.trim()
+      ? raw.displayName.trim()
+      : id;
+  const out = {
+    id,
+    displayName,
+    description: typeof raw.description === 'string' ? raw.description : '',
+  };
+  if (Array.isArray(raw.parameters)) {
+    const parameters = raw.parameters.map(normalizeModelParameterDefinition).filter(Boolean);
+    if (parameters.length > 0) {
+      out.parameters = parameters;
+    }
+  }
+  if (Array.isArray(raw.variants)) {
+    const variants = raw.variants.map(normalizeModelVariant).filter(Boolean);
+    if (variants.length > 0) {
+      out.variants = variants;
+    }
+  }
+  return out;
+}
+
 function getModelSelectionPath() {
   const dir = path.join(os.homedir(), '.cursorcats');
   if (!fs.existsSync(dir)) {
@@ -682,6 +782,21 @@ function normalizeRuntime(value) {
   return String(value || '').trim().toLowerCase() === 'cloud' ? 'cloud' : 'local';
 }
 
+ipcMain.handle('list-skills', (_event, folder) => {
+  try {
+    const skills = listAvailableSkills(typeof folder === 'string' ? folder : '');
+    return skills.map(({ id, name, description, source }) => ({
+      id,
+      name,
+      description,
+      source,
+    }));
+  } catch (e) {
+    console.warn('list-skills failed', e);
+    return [];
+  }
+});
+
 ipcMain.handle('list-models', async () => {
   const apiKey = process.env.CURSOR_API_KEY;
   if (!apiKey) {
@@ -693,11 +808,11 @@ ipcMain.handle('list-models', async () => {
     if (!Array.isArray(models) || models.length === 0) {
       return FALLBACK_MODEL_LIST;
     }
-    return models.map((m) => ({
-      id: String(m.id),
-      displayName: (m.displayName && String(m.displayName)) || String(m.id),
-      description: m.description != null ? String(m.description) : '',
-    }));
+    const normalized = models.map(normalizeSdkModelListItem).filter(Boolean);
+    if (normalized.length === 0) {
+      return FALLBACK_MODEL_LIST;
+    }
+    return normalized;
   } catch (e) {
     console.warn('list-models failed', e);
     return FALLBACK_MODEL_LIST;
@@ -841,6 +956,17 @@ ipcMain.on('new-cat-submit', (_event, payload) => {
     modalWindow.close();
   }
   sendSpawnCatToOverlay(out);
+  const skills =
+    payload && Array.isArray(payload.skills)
+      ? payload.skills
+          .filter((s) => s && typeof s.name === 'string' && s.name.trim())
+          .map((s) => ({
+            id: s.id != null ? String(s.id) : '',
+            name: String(s.name).trim(),
+            description: s.description != null ? String(s.description) : '',
+            source: s.source != null ? String(s.source) : '',
+          }))
+      : [];
   startAgentForCat(
     {
       catId,
@@ -849,6 +975,7 @@ ipcMain.on('new-cat-submit', (_event, payload) => {
       model: modelId || undefined,
       runtime,
       cloudRepo,
+      skills,
     },
     { getMainWindow: () => mainWindow }
   );
