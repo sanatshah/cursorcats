@@ -3,58 +3,19 @@
 const fs = require('fs');
 const path = require('path');
 
-function getEnvFilePath(packageRoot) {
-  return path.join(packageRoot, '.env');
-}
-
-/**
- * @param {string} line
- * @returns {{ key: string, value: string } | null}
- */
-function parseEnvLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed.startsWith('#')) return null;
-  const eq = trimmed.indexOf('=');
-  if (eq <= 0) return null;
-  const key = trimmed.slice(0, eq).trim();
-  let value = trimmed.slice(eq + 1).trim();
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    value = value.slice(1, -1);
-  }
-  return { key, value };
-}
-
-/**
- * @param {string} envPath
- * @returns {Record<string, string>}
- */
-function readEnvFile(envPath) {
-  if (!fs.existsSync(envPath)) return {};
-  const text = fs.readFileSync(envPath, 'utf8');
-  /** @type {Record<string, string>} */
-  const out = {};
-  for (const line of text.split(/\r?\n/)) {
-    const parsed = parseEnvLine(line);
-    if (parsed) out[parsed.key] = parsed.value;
-  }
-  return out;
-}
-
-/**
- * @param {string} value
- */
-function formatEnvValue(value) {
-  const s = String(value ?? '');
-  if (/^[A-Za-z0-9_./+-]+$/.test(s)) return s;
-  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
-}
-
 /** Markers so we can replace the same block on future saves. */
 const CURSORCATS_SHELL_KEY_BEGIN = '# >>> cursorcats CURSOR_API_KEY >>>';
 const CURSORCATS_SHELL_KEY_END = '# <<< cursorcats CURSOR_API_KEY <<<';
+
+/**
+ * @param {string | null | undefined} value
+ */
+function isValidCursorApiKey(value) {
+  const s = String(value || '').trim();
+  if (!s || s.length < 12) return false;
+  if (/^https?:\/\//i.test(s) || s.includes('://')) return false;
+  return s.startsWith('key_');
+}
 
 /**
  * Quote a value for POSIX `export VAR='…'` (bash/zsh).
@@ -80,6 +41,42 @@ function getShellRcPath() {
   if (fs.existsSync(bashRc)) return bashRc;
   if (process.platform === 'darwin') return zshRc;
   return bashRc;
+}
+
+/**
+ * Parse `export CURSOR_API_KEY='…'` from a POSIX single-quoted rhs.
+ * @param {string} raw
+ */
+function parseShellSingleQuotedExport(raw) {
+  const s = String(raw || '').trim();
+  if (!s.startsWith("'") || !s.endsWith("'") || s.length < 2) return s;
+  return s.slice(1, -1).replace(/'\\''/g, "'");
+}
+
+/**
+ * Read `CURSOR_API_KEY` from the cursorcats-managed block in a shell rc file.
+ * @param {string | null} rcPath
+ * @returns {string | null}
+ */
+function readShellRcCursorApiKey(rcPath) {
+  if (!rcPath || !fs.existsSync(rcPath)) return null;
+  const raw = fs.readFileSync(rcPath, 'utf8');
+  const start = raw.indexOf(CURSORCATS_SHELL_KEY_BEGIN);
+  if (start === -1) return null;
+  const end = raw.indexOf(CURSORCATS_SHELL_KEY_END, start + CURSORCATS_SHELL_KEY_BEGIN.length);
+  if (end === -1) return null;
+  const block = raw.slice(start, end);
+  const match = block.match(/^\s*export\s+CURSOR_API_KEY=(.+)$/m);
+  if (!match) return null;
+  const value = parseShellSingleQuotedExport(match[1]);
+  return value.trim() || null;
+}
+
+/**
+ * @param {string | null} rcPath
+ */
+function hasCursorApiKeyInShellRc(rcPath) {
+  return isValidCursorApiKey(readShellRcCursorApiKey(rcPath));
 }
 
 /**
@@ -109,92 +106,64 @@ function upsertShellRcCursorApiKey(rcPath, apiKey) {
 }
 
 /**
- * @param {string} envPath
- * @param {string} key
- * @param {string} value
+ * Load `CURSOR_API_KEY` from the shell rc managed block into `process.env`.
  */
-function upsertEnvFileKey(envPath, key, value) {
-  const lines = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8').split(/\r?\n/) : [];
-  let found = false;
-  const next = lines.map((line) => {
-    const parsed = parseEnvLine(line);
-    if (parsed && parsed.key === key) {
-      found = true;
-      return `${key}=${formatEnvValue(value)}`;
-    }
-    return line;
-  });
-  if (!found) {
-    if (next.length && next[next.length - 1] !== '') next.push('');
-    next.push(`${key}=${formatEnvValue(value)}`);
-  }
-  const content = next.join('\n');
-  fs.writeFileSync(envPath, content.endsWith('\n') ? content : `${content}\n`, 'utf8');
-}
-
-/**
- * Merge package `.env` into `process.env` (does not override existing non-empty vars).
- * @param {string} packageRoot
- */
-function loadEnvFileIntoProcess(packageRoot) {
-  const envPath = getEnvFilePath(packageRoot);
-  const vars = readEnvFile(envPath);
-  for (const [k, v] of Object.entries(vars)) {
-    if (process.env[k] === undefined || process.env[k] === '') {
-      process.env[k] = v;
-    }
+function loadCursorApiKeyIntoProcess() {
+  const fromShell = readShellRcCursorApiKey(getShellRcPath());
+  if (isValidCursorApiKey(fromShell)) {
+    process.env.CURSOR_API_KEY = fromShell.trim();
   }
 }
 
-/**
- * @param {string} packageRoot
- */
-function hasCursorApiKeyInEnvFile(packageRoot) {
-  const vars = readEnvFile(getEnvFilePath(packageRoot));
-  const v = vars.CURSOR_API_KEY;
-  return typeof v === 'string' && v.trim().length > 0;
-}
-
+/** True when the key is saved in the cursorcats-managed shell rc block. */
 function cursorApiKeyConfigured() {
-  const v = process.env.CURSOR_API_KEY;
-  return typeof v === 'string' && v.trim().length > 0;
+  return hasCursorApiKeyInShellRc(getShellRcPath());
 }
 
 /**
- * @param {string} packageRoot
  * @param {string} apiKey
- * @returns {{ envPath: string, shellRc: { path: string | null, error: string | null } }}
+ * @returns {{ shellRcPath: string }}
  */
-function setCursorApiKey(packageRoot, apiKey) {
+function setCursorApiKey(apiKey) {
   const trimmed = String(apiKey || '').trim();
   if (!trimmed) {
     throw new Error('API key is empty');
   }
-  const envPath = getEnvFilePath(packageRoot);
-  upsertEnvFileKey(envPath, 'CURSOR_API_KEY', trimmed);
-  process.env.CURSOR_API_KEY = trimmed;
-
-  /** @type {{ path: string | null, error: string | null }} */
-  const shellRc = { path: null, error: null };
+  if (!isValidCursorApiKey(trimmed)) {
+    throw new Error(
+      'That does not look like a Cursor API key. Copy a key that starts with key_ from Cursor settings.'
+    );
+  }
   const rcPath = getShellRcPath();
   if (!rcPath) {
-    shellRc.error = 'HOME was not set; skipped updating shell rc.';
-  } else {
-    try {
-      upsertShellRcCursorApiKey(rcPath, trimmed);
-      shellRc.path = rcPath;
-    } catch (e) {
-      shellRc.error = (e && e.message) || String(e);
-    }
+    throw new Error('HOME was not set; cannot save API key to shell config.');
   }
-  return { envPath, shellRc };
+  upsertShellRcCursorApiKey(rcPath, trimmed);
+  process.env.CURSOR_API_KEY = trimmed;
+  return { shellRcPath: rcPath };
+}
+
+/**
+ * @returns {{ configured: boolean, invalidSavedKey: boolean, shellRcPath: string | null }}
+ */
+function getCursorApiKeyStatus() {
+  const shellRcPath = getShellRcPath();
+  const saved = readShellRcCursorApiKey(shellRcPath);
+  const invalidSavedKey = Boolean(saved && !isValidCursorApiKey(saved));
+  return {
+    configured: hasCursorApiKeyInShellRc(shellRcPath),
+    invalidSavedKey,
+    shellRcPath,
+  };
 }
 
 module.exports = {
-  getEnvFilePath,
   getShellRcPath,
-  loadEnvFileIntoProcess,
-  hasCursorApiKeyInEnvFile,
+  loadCursorApiKeyIntoProcess,
+  hasCursorApiKeyInShellRc,
+  readShellRcCursorApiKey,
+  isValidCursorApiKey,
   setCursorApiKey,
   cursorApiKeyConfigured,
+  getCursorApiKeyStatus,
 };

@@ -50,6 +50,7 @@ const cloudReposList = document.getElementById('cloud-repos-list');
 const cloudStartingRefInput = document.getElementById('cloud-starting-ref');
 const cloudRepoSearchInput = document.getElementById('cloud-repo-search');
 const apiKeySection = document.getElementById('api-key-section');
+const apiKeyHint = document.getElementById('api-key-hint');
 const apiKeyInput = document.getElementById('api-key-input');
 
 let needsApiKey = false;
@@ -649,21 +650,15 @@ async function ensureApiKeySaved() {
   try {
     const result = await window.cursorcats.saveCursorApiKey(key);
     if (!result || !result.ok) {
-      setError(result?.error || 'Could not save API key to .env.');
+      setError(result?.error || 'Could not save API key to shell config.');
       return false;
-    }
-    if (result.shellRcError) {
-      setError(
-        `Key saved to .env. Could not update shell config: ${result.shellRcError}` +
-          (result.shellRcPath ? ` (${result.shellRcPath})` : '')
-      );
     }
     needsApiKey = false;
     if (apiKeySection) apiKeySection.hidden = true;
     if (apiKeyInput) apiKeyInput.value = '';
     return true;
   } catch {
-    setError('Could not save API key to .env.');
+    setError('Could not save API key to shell config.');
     return false;
   }
 }
@@ -915,17 +910,46 @@ if (apiKeyDashboardLink) {
   });
 }
 
+function showApiKeySection(invalidSavedKey) {
+  if (!apiKeySection) return;
+  if (apiKeyHint) {
+    if (invalidSavedKey) {
+      apiKeyHint.innerHTML =
+        'Your shell config has a saved value that is not a valid API key (it should start with <code>key_</code>). Paste a key from ' +
+        '<button type="button" id="api-key-dashboard-link" class="api-key-link">Cursor settings</button> ' +
+        '— we will replace the managed block when you spawn.';
+    } else {
+      apiKeyHint.innerHTML =
+        'No <code>CURSOR_API_KEY</code> saved in your shell config yet. Paste a key from ' +
+        '<button type="button" id="api-key-dashboard-link" class="api-key-link">Cursor settings</button> ' +
+        '— we save it to your <code>.zshrc</code> or <code>.bashrc</code> (managed block) when you spawn.';
+    }
+    const link = document.getElementById('api-key-dashboard-link');
+    if (link) {
+      link.addEventListener('click', () => {
+        void window.cursorcats?.openExternalUrl?.('https://cursor.com/dashboard');
+      });
+    }
+  }
+  apiKeySection.hidden = false;
+  syncPromptHeight();
+}
+
 async function initApiKeySection() {
-  if (!window.cursorcats?.hasCursorApiKey) return;
+  if (!window.cursorcats?.hasCursorApiKey) {
+    needsApiKey = true;
+    showApiKeySection(false);
+    return;
+  }
   try {
     const status = await window.cursorcats.hasCursorApiKey();
     needsApiKey = !(status && status.configured);
-    if (needsApiKey && apiKeySection) {
-      apiKeySection.hidden = false;
-      syncPromptHeight();
+    if (needsApiKey) {
+      showApiKeySection(Boolean(status?.invalidSavedKey));
     }
   } catch {
-    needsApiKey = false;
+    needsApiKey = true;
+    showApiKeySection(false);
   }
 }
 

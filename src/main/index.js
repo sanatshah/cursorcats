@@ -103,7 +103,7 @@ function getPackageRoot() {
   return path.resolve(__dirname, '..', '..');
 }
 
-envFile.loadEnvFileIntoProcess(getPackageRoot());
+envFile.loadCursorApiKeyIntoProcess();
 
 function assertPathInsideApp(relPath) {
   const root = path.resolve(getPackageRoot());
@@ -657,20 +657,12 @@ ipcMain.handle('add-recent-folder', (_event, folder) => {
   }
 });
 
-ipcMain.handle('has-cursor-api-key', () => ({
-  configured: envFile.cursorApiKeyConfigured(),
-  envFilePath: envFile.getEnvFilePath(getPackageRoot()),
-}));
+ipcMain.handle('has-cursor-api-key', () => envFile.getCursorApiKeyStatus());
 
 ipcMain.handle('save-cursor-api-key', (_event, apiKey) => {
   try {
-    const { envPath, shellRc } = envFile.setCursorApiKey(getPackageRoot(), apiKey);
-    return {
-      ok: true,
-      path: envPath,
-      shellRcPath: shellRc.path,
-      shellRcError: shellRc.error,
-    };
+    const { shellRcPath } = envFile.setCursorApiKey(apiKey);
+    return { ok: true, shellRcPath };
   } catch (e) {
     return { ok: false, error: (e && e.message) || String(e) };
   }

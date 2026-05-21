@@ -81,14 +81,14 @@ if (process.argv[2] === 'remove-hooks') {
 
 try {
   const envFile = require(path.join(pkgRoot, 'out', 'main', 'env-file.js'));
-  envFile.loadEnvFileIntoProcess(pkgRoot);
+  envFile.loadCursorApiKeyIntoProcess();
 } catch {
   // ignore until package is built
 }
 
 if (!process.env.CURSOR_API_KEY) {
   console.error(
-    '[cursorcats] Warning: CURSOR_API_KEY is not set. Add it to .env in the package folder, your .zshrc/.bashrc, or enter it when spawning a cat.'
+    '[cursorcats] Warning: CURSOR_API_KEY is not set. Add it to your .zshrc/.bashrc (managed block) or enter it when spawning a cat.'
   );
 }
 

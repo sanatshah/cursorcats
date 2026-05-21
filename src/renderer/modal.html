@@ -58,11 +58,11 @@
 
       <section id="api-key-section" class="api-key-section" hidden>
         <div class="section-title">Cursor API key</div>
-        <p class="api-key-hint">
-          No <code>CURSOR_API_KEY</code> loaded yet. Paste a key from
+        <p id="api-key-hint" class="api-key-hint">
+          No <code>CURSOR_API_KEY</code> saved in your shell config yet. Paste a key from
           <button type="button" id="api-key-dashboard-link" class="api-key-link">Cursor settings</button>
-          — we save it to this app’s <code>.env</code> and your <code>.zshrc</code> or
-          <code>.bashrc</code> (managed block) when you spawn.
+          — we save it to your <code>.zshrc</code> or <code>.bashrc</code> (managed block)
+          when you spawn.
         </p>
         <label class="api-key-label" for="api-key-input">API key</label>
         <input
