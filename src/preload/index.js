@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('cursorcats', {
   chooseFolder: () => ipcRenderer.invoke('choose-folder'),
   getRecentFolders: () => ipcRenderer.invoke('get-recent-folders'),
   addRecentFolder: (folder) => ipcRenderer.invoke('add-recent-folder', folder),
+  removeRecentFolder: (folder) => ipcRenderer.invoke('remove-recent-folder', folder),
+  hasCursorApiKey: () => ipcRenderer.invoke('has-cursor-api-key'),
+  saveCursorApiKey: (apiKey) => ipcRenderer.invoke('save-cursor-api-key', apiKey),
   listModels: () => ipcRenderer.invoke('list-models'),
   listSkills: (folder) => ipcRenderer.invoke('list-skills', folder),
   getSelectedModel: () => ipcRenderer.invoke('get-selected-model'),
@@ -63,6 +66,7 @@ contextBridge.exposeInMainWorld('cursorcats', {
   },
   getAgentConversation: (catId) => ipcRenderer.invoke('get-agent-conversation', catId),
   revertCat: (catId) => ipcRenderer.invoke('revert-cat-changes', { catId }),
+  commitPushCat: (catId) => ipcRenderer.invoke('commit-push-cat-changes', { catId }),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   onConversationUpdated: (callback) => {
     const listener = (_event, payload) => {

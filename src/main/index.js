@@ -82,6 +82,7 @@ const {
   dismissAgent,
   sendFollowup,
   revertAgentChanges,
+  commitAndPushAgentChanges,
 } = require('./agents');
 const { listAvailableSkills } = require('./skills');
 const { startHookServer } = require('./hook-server');
@@ -90,6 +91,7 @@ const {
   handleIdeSessionEnd,
   removeIdeCatIfPresent,
 } = require('./ide-sessions');
+const envFile = require('./env-file');
 
 /**
  * Root of the installed package (`package.json`, `assets/`, `out/`).
@@ -100,6 +102,8 @@ const {
 function getPackageRoot() {
   return path.resolve(__dirname, '..', '..');
 }
+
+envFile.loadEnvFileIntoProcess(getPackageRoot());
 
 function assertPathInsideApp(relPath) {
   const root = path.resolve(getPackageRoot());
@@ -306,7 +310,7 @@ function openNewCatModal() {
 
   modalWindow = new BrowserWindow({
     width: 680,
-    height: 500,
+    height: 548,
     useContentSize: true,
     frame: false,
     transparent: true,
@@ -650,6 +654,37 @@ ipcMain.handle('add-recent-folder', (_event, folder) => {
     fs.writeFileSync(file, JSON.stringify(folders, null, 2), 'utf8');
   } catch (e) {
     // ignore
+  }
+});
+
+ipcMain.handle('has-cursor-api-key', () => ({
+  configured: envFile.cursorApiKeyConfigured(),
+  envFilePath: envFile.getEnvFilePath(getPackageRoot()),
+}));
+
+ipcMain.handle('save-cursor-api-key', (_event, apiKey) => {
+  try {
+    const envPath = envFile.setCursorApiKey(getPackageRoot(), apiKey);
+    return { ok: true, path: envPath };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+});
+
+ipcMain.handle('remove-recent-folder', (_event, folder) => {
+  if (!folder || typeof folder !== 'string') return false;
+  try {
+    const file = getRecentFoldersPath();
+    let folders = [];
+    if (fs.existsSync(file)) {
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (Array.isArray(data)) folders = data;
+    }
+    const next = folders.filter((f) => f !== folder);
+    fs.writeFileSync(file, JSON.stringify(next, null, 2), 'utf8');
+    return true;
+  } catch (e) {
+    return false;
   }
 });
 
@@ -1057,13 +1092,45 @@ ipcMain.on('agent-followup', (_e, { catId, text } = {}) => {
 
 ipcMain.handle('get-agent-conversation', (_e, catId) => getAgentConversation(catId));
 
+ipcMain.handle('commit-push-cat-changes', async (_e, { catId } = {}) => {
+  if (!catId) return { ok: false, error: 'missing cat id' };
+  const id = String(catId);
+  if (id.startsWith('ide:')) {
+    return { ok: false, error: 'Commit & push is not available for this cat.' };
+  }
+  const c = await getAgentConversation(id);
+  if (!c.found || !c.folder) {
+    return { ok: false, error: 'Conversation not found.' };
+  }
+  if (!c.hasGitChanges) {
+    return { ok: false, error: 'No changes to commit.' };
+  }
+  const branchLabel = c.gitBranch ? ` (${c.gitBranch})` : '';
+  const parent =
+    (conversationWindow && !conversationWindow.isDestroyed() && conversationWindow) ||
+    (mainWindow && !mainWindow.isDestroyed() && mainWindow) ||
+    undefined;
+  const { response } = await dialog.showMessageBox(parent, {
+    type: 'question',
+    message: 'Commit and push all changes?',
+    detail: `This will commit everything in the project folder and push to the remote${branchLabel}:\n\n${c.folder}`,
+    buttons: ['Cancel', 'Commit & push'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response !== 1) {
+    return { ok: false, cancelled: true };
+  }
+  return commitAndPushAgentChanges(id, { log: console });
+});
+
 ipcMain.handle('revert-cat-changes', async (_e, { catId } = {}) => {
   if (!catId) return { ok: false, error: 'missing cat id' };
   const id = String(catId);
   if (id.startsWith('ide:')) {
     return { ok: false, error: 'Revert is not available for this cat.' };
   }
-  const c = getAgentConversation(id);
+  const c = await getAgentConversation(id);
   if (!c.found || !c.folder) {
     return { ok: false, error: 'Conversation not found.' };
   }

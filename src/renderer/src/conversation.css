@@ -6,7 +6,12 @@ html,
 body {
   margin: 0;
   padding: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-size: 13px;
   line-height: 1.4;
   background: transparent;
@@ -27,11 +32,14 @@ body {
   flex: 1;
   min-height: 0;
   border-radius: 12px;
-  background: rgba(20, 22, 23, 0.85);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.4);
+  background: rgba(20, 18, 11, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid #2b2923;
+  box-shadow:
+    0 1px 0 rgba(237, 236, 236, 0.06),
+    0 16px 48px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(0, 0, 0, 0.35);
   color: #edecec;
 }
 
@@ -40,15 +48,15 @@ body {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  padding: 12px 200px 12px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px 320px 12px 16px;
+  border-bottom: 1px solid rgba(237, 236, 236, 0.08);
 }
 
 .meta {
   margin: 0;
   font-size: 11px;
   word-break: break-all;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(237, 236, 236, 0.4);
 }
 
 .header-btn.dismiss-btn {
@@ -59,22 +67,70 @@ body {
   font-size: 12px;
   font-weight: 500;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid #2b2923;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.06);
+  background: #201e18;
   color: rgba(237, 236, 236, 0.9);
   transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
 
 .header-btn.dismiss-btn:hover {
   color: #fff;
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.22);
+  background: #26241e;
+  border-color: #2b2923;
+}
+
+.commit-push-wrap {
+  position: absolute;
+  right: 200px;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  max-width: 108px;
+}
+
+.commit-push-branch {
+  font-size: 10px;
+  line-height: 1.2;
+  color: rgba(237, 236, 236, 0.45);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.commit-push-branch--error {
+  color: #f87171;
+}
+
+.header-btn.commit-push-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 78, 0, 0.55);
+  cursor: pointer;
+  background: #f54e00;
+  color: #fff;
+  transition: color 0.1s, background 0.1s, border-color 0.1s, opacity 0.1s;
+}
+
+.header-btn.commit-push-btn:hover:not(:disabled) {
+  background: #ff6a1a;
+  border-color: rgba(245, 78, 0, 0.9);
+}
+
+.header-btn.commit-push-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .header-btn.revert-btn {
   position: absolute;
-  right: 200px;
+  right: 318px;
   top: 10px;
   padding: 4px 10px;
   font-size: 12px;
@@ -89,7 +145,7 @@ body {
 
 .header-btn.revert-btn:hover:not(:disabled) {
   color: #fff;
-  background: rgba(245, 78, 0, 0.5);
+  background: #f54e00;
   border-color: rgba(245, 78, 0, 0.85);
 }
 
@@ -111,7 +167,7 @@ body {
   border: none;
   cursor: pointer;
   background: transparent;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(237, 236, 236, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -120,7 +176,7 @@ body {
 
 .close-btn:hover {
   color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(237, 236, 236, 0.1);
 }
 
 .answer-page-panel {
@@ -130,8 +186,8 @@ body {
   align-items: center;
   gap: 8px 12px;
   padding: 8px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(245, 78, 0, 0.08);
+  border-bottom: 1px solid rgba(237, 236, 236, 0.08);
+  background: rgba(245, 78, 0, 0.1);
 }
 
 .answer-page-btn {
@@ -159,8 +215,8 @@ body {
 .answer-error-row {
   flex: 0 0 auto;
   padding: 8px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 60, 40, 0.08);
+  border-bottom: 1px solid rgba(237, 236, 236, 0.08);
+  background: rgba(255, 60, 40, 0.1);
 }
 
 .answer-error-row .answer-page-error {
@@ -170,8 +226,8 @@ body {
 .revert-error-row {
   flex: 0 0 auto;
   padding: 8px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 60, 40, 0.08);
+  border-bottom: 1px solid rgba(237, 236, 236, 0.08);
+  background: rgba(255, 60, 40, 0.1);
 }
 
 .revert-error {
@@ -184,8 +240,8 @@ body {
 .cloud-result-row {
   flex: 0 0 auto;
   padding: 8px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(245, 78, 0, 0.08);
+  border-bottom: 1px solid rgba(237, 236, 236, 0.08);
+  background: rgba(245, 78, 0, 0.1);
   font-size: 11px;
   color: rgba(237, 236, 236, 0.72);
   word-break: break-word;
@@ -212,15 +268,15 @@ body {
 }
 
 .answer-page-btn--secondary {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(237, 236, 236, 0.08);
   color: rgba(237, 236, 236, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(237, 236, 236, 0.15);
 }
 
 .answer-page-btn--secondary:hover {
   filter: none;
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(237, 236, 236, 0.12);
+  border-color: rgba(237, 236, 236, 0.22);
 }
 
 .main-stage {
@@ -250,7 +306,7 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(0, 0, 0, 0.25);
+  background: #14120b;
   overflow: hidden;
 }
 
@@ -267,11 +323,16 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f7f7f4;
+  background: #14120b;
   color: #f54e00;
   font-size: 14px;
   font-weight: 500;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   text-align: center;
 }
 
@@ -286,7 +347,7 @@ body {
 .line {
   margin-bottom: 12px;
   padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(237, 236, 236, 0.06);
 }
 
 .line:last-child {
@@ -303,13 +364,13 @@ body {
   letter-spacing: 0.04em;
   margin-bottom: 4px;
   color: #f54e00;
-  opacity: 0.9;
+  opacity: 0.95;
 }
 
 .line--thinking .line-label,
 .line--user .line-label,
 .line--assistant .line-label {
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .line-text {
@@ -331,8 +392,8 @@ body {
 footer.composer {
   flex: 0 0 auto;
   padding: 10px 16px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(237, 236, 236, 0.08);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .composer-label-row {
@@ -350,7 +411,7 @@ footer.composer {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(237, 236, 236, 0.45);
   margin: 0;
   flex: 0 1 auto;
 }
@@ -396,8 +457,8 @@ footer.composer {
   resize: vertical;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid #2b2923;
+  background: #1d1b15;
   color: #edecec;
   font-family: inherit;
   font-size: 12px;

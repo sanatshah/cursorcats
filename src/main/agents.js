@@ -6,6 +6,7 @@ const os = require('os');
 const { pathToFileURL } = require('url');
 const { promisify } = require('util');
 const { execFile } = require('child_process');
+const { marked } = require('marked');
 
 const execFileAsync = promisify(execFile);
 
@@ -26,6 +27,11 @@ const conversations = new Map();
 const active = new Map();
 
 const CURSORCATS_ANSWER_HTML_FENCE = 'cursorcats-answer-html';
+
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+});
 
 function buildAnswerHtmlPageInstruction() {
   return (
@@ -66,7 +72,7 @@ function stripAnswerHtmlFenceFromText(fullText) {
   return String(fullText || '')
     .replace(
       new RegExp('```' + CURSORCATS_ANSWER_HTML_FENCE + '[\\s\\S]*?```', 'im'),
-      '\n\n[Answer layout is on the Answer page view.]\n\n'
+      ''
     )
     .trim();
 }
@@ -87,9 +93,23 @@ function escapeHtmlBody(s) {
     .replace(/>/g, '&gt;');
 }
 
+/**
+ * @param {string} md
+ * @returns {string}
+ */
+function markdownToAnswerHtml(md) {
+  const src = String(md || '');
+  try {
+    const out = marked.parse(src);
+    return typeof out === 'string' ? out : escapeHtmlBody(src).replace(/\n/g, '<br>\n');
+  } catch (_e) {
+    return `<p>${escapeHtmlBody(src).replace(/\n/g, '<br>\n')}</p>`;
+  }
+}
+
 function buildFallbackAnswerDocument(title, bodyText) {
   const t = escapeHtmlBody((title || 'Answer').trim().slice(0, 200));
-  const body = escapeHtmlBody(bodyText || '').replace(/\n/g, '<br>\n');
+  const body = markdownToAnswerHtml(bodyText || '');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -101,7 +121,7 @@ function buildFallbackAnswerDocument(title, bodyText) {
   body {
     font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
     font-size: 0.95rem;
-    line-height: 1.4;
+    line-height: 1.45;
     margin: 0;
     min-height: 100vh;
     color: #26251e;
@@ -126,7 +146,80 @@ function buildFallbackAnswerDocument(title, bodyText) {
     margin: 0 0 0.9rem;
     text-shadow: 1px 1px 0 rgba(38, 37, 30, 0.12);
   }
-  .body { white-space: pre-wrap; word-break: break-word; }
+  .answer-md { word-break: break-word; }
+  .answer-md > :first-child { margin-top: 0; }
+  .answer-md > :last-child { margin-bottom: 0; }
+  .answer-md p { margin: 0.55rem 0; }
+  .answer-md h2, .answer-md h3, .answer-md h4 {
+    margin: 1rem 0 0.4rem;
+    font-weight: 800;
+    color: #26251e;
+    line-height: 1.25;
+  }
+  .answer-md h2 { font-size: 1.02rem; color: #f54e00; }
+  .answer-md h3 { font-size: 0.98rem; }
+  .answer-md h4 { font-size: 0.95rem; opacity: 0.95; }
+  .answer-md ul, .answer-md ol {
+    margin: 0.5rem 0;
+    padding-left: 1.35rem;
+  }
+  .answer-md li { margin: 0.25rem 0; }
+  .answer-md li::marker { color: #f54e00; }
+  .answer-md blockquote {
+    margin: 0.65rem 0;
+    padding: 0.4rem 0.75rem;
+    border-left: 4px solid #f54e00;
+    background: #f0efeb;
+    color: rgba(38, 37, 30, 0.92);
+  }
+  .answer-md a { color: #f54e00; text-decoration-thickness: 2px; }
+  .answer-md a:hover { text-decoration: underline; }
+  .answer-md hr {
+    border: none;
+    border-top: 2px dashed rgba(38, 37, 30, 0.22);
+    margin: 1rem 0;
+  }
+  .answer-md code {
+    font-family: inherit;
+    font-size: 0.9em;
+    padding: 0.1em 0.35em;
+    background: #ebeae5;
+    border: 1px solid rgba(38, 37, 30, 0.12);
+    border-radius: 2px;
+  }
+  .answer-md pre {
+    margin: 0.65rem 0;
+    padding: 0.75rem 0.85rem;
+    overflow-x: auto;
+    background: #1b1913;
+    color: #edecec;
+    border: 3px solid #26251e;
+    box-shadow: 3px 3px 0 rgba(245, 78, 0, 0.35);
+    image-rendering: pixelated;
+  }
+  .answer-md pre code {
+    padding: 0;
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 0.88rem;
+  }
+  .answer-md table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.65rem 0;
+    font-size: 0.9rem;
+    border: 2px solid #26251e;
+    box-shadow: 2px 2px 0 rgba(38, 37, 30, 0.08);
+  }
+  .answer-md th, .answer-md td {
+    border: 1px solid rgba(38, 37, 30, 0.2);
+    padding: 0.35rem 0.5rem;
+    text-align: left;
+  }
+  .answer-md th { background: #f0efeb; color: #f54e00; }
+  .answer-md tr:nth-child(even) td { background: rgba(240, 239, 235, 0.55); }
+  .answer-md img { max-width: 100%; height: auto; }
   .paw { font-size: 0.85rem; opacity: 0.4; user-select: none; }
 </style>
 </head>
@@ -134,7 +227,7 @@ function buildFallbackAnswerDocument(title, bodyText) {
   <div class="sill">
     <p class="paw" aria-hidden="true">🐾</p>
     <h1>${t}</h1>
-    <div class="body">${body}</div>
+    <div class="answer-md">${body}</div>
   </div>
 </body>
 </html>
@@ -361,6 +454,89 @@ function getConversationLocationLabel(rec) {
 }
 
 /**
+ * @param {string} folder
+ * @returns {Promise<boolean>}
+ */
+async function isGitWorkTree(folder) {
+  const f = String(folder || '').trim();
+  if (!f) return false;
+  try {
+    const { stdout: inTree } = await execFileAsync('git', ['-C', f, 'rev-parse', '--is-inside-work-tree'], {
+      encoding: 'utf8',
+    });
+    return String(inTree).trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Writes a tree object for the current working tree (tracked + untracked, .gitignore respected)
+ * using a temp index, without touching the user's real index.
+ * @param {string} folder
+ * @param {Console} [log]
+ * @returns {Promise<string | null>}
+ */
+async function writeTreeForFolder(folder, log = console) {
+  const f = String(folder || '').trim();
+  if (!f || !(await isGitWorkTree(f))) return null;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cursorcats-git-'));
+  const indexFile = path.join(tmp, 'index');
+  const env = { ...process.env, GIT_INDEX_FILE: indexFile };
+  try {
+    await execFileAsync('git', ['add', '-A'], { cwd: f, env, encoding: 'utf8' });
+    const { stdout: treeOut } = await execFileAsync('git', ['write-tree'], { cwd: f, env, encoding: 'utf8' });
+    const tree = String(treeOut).trim();
+    if (!/^[0-9a-f]{40}$/i.test(tree)) {
+      log.warn('writeTreeForFolder: unexpected write-tree output', treeOut);
+      return null;
+    }
+    return tree;
+  } catch (e) {
+    log.warn('writeTreeForFolder failed', e);
+    return null;
+  } finally {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * @param {string} folder
+ * @returns {Promise<string | null>}
+ */
+async function getGitBranchName(folder) {
+  const f = String(folder || '').trim();
+  if (!f || !(await isGitWorkTree(f))) return null;
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', f, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      encoding: 'utf8',
+    });
+    const name = String(stdout).trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {string} folder
+ * @param {string} snapshotTree
+ * @param {Console} [log]
+ * @returns {Promise<boolean>}
+ */
+async function folderHasChangesSinceSnapshot(folder, snapshotTree, log = console) {
+  const snap = String(snapshotTree || '').trim();
+  if (!snap) return false;
+  const current = await writeTreeForFolder(folder, log);
+  if (!current) return false;
+  return current !== snap;
+}
+
+/**
  * Captures a git tree object for the current working tree (tracked + untracked, .gitignore respected)
  * using a temp index, without touching the user's real index. Returns null if not a git worktree
  * or on failure.
@@ -370,15 +546,7 @@ function getConversationLocationLabel(rec) {
  */
 async function captureGitSnapshotForFolder(folder, log = console) {
   const f = String(folder || '').trim();
-  if (!f) return null;
-  try {
-    const { stdout: inTree } = await execFileAsync('git', ['-C', f, 'rev-parse', '--is-inside-work-tree'], {
-      encoding: 'utf8',
-    });
-    if (String(inTree).trim() !== 'true') return null;
-  } catch {
-    return null;
-  }
+  if (!f || !(await isGitWorkTree(f))) return null;
   let headSha = null;
   try {
     const { stdout } = await execFileAsync('git', ['-C', f, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
@@ -387,28 +555,9 @@ async function captureGitSnapshotForFolder(folder, log = console) {
   } catch {
     headSha = null;
   }
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cursorcats-git-'));
-  const indexFile = path.join(tmp, 'index');
-  const env = { ...process.env, GIT_INDEX_FILE: indexFile };
-  try {
-    await execFileAsync('git', ['add', '-A'], { cwd: f, env, encoding: 'utf8' });
-    const { stdout: treeOut } = await execFileAsync('git', ['write-tree'], { cwd: f, env, encoding: 'utf8' });
-    const tree = String(treeOut).trim();
-    if (!/^[0-9a-f]{40}$/i.test(tree)) {
-      log.warn('captureGitSnapshot: unexpected write-tree output', treeOut);
-      return null;
-    }
-    return { tree, headSha, capturedAt: now() };
-  } catch (e) {
-    log.warn('captureGitSnapshot failed', e);
-    return null;
-  } finally {
-    try {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  }
+  const tree = await writeTreeForFolder(f, log);
+  if (!tree) return null;
+  return { tree, headSha, capturedAt: now() };
 }
 
 /**
@@ -458,6 +607,67 @@ async function revertAgentChanges(catId, opts = {}) {
   });
   onConversationPushed({ catId: id });
   return { ok: true };
+}
+
+/**
+ * Stages, commits, and pushes local changes since the spawn snapshot. Updates the snapshot on success.
+ * @param {string} catId
+ * @param {{ log?: Console }} [opts]
+ * @returns {Promise<{ ok: true, branch?: string | null } | { ok: false, error: string }>}
+ */
+async function commitAndPushAgentChanges(catId, opts = {}) {
+  const { log = console } = opts;
+  const id = String(catId);
+  const rec = conversations.get(id);
+  if (!rec || !rec.snapshotTree) {
+    return { ok: false, error: 'No git snapshot for this cat.' };
+  }
+  if (rec.reverted) {
+    return { ok: false, error: 'Changes were reverted.' };
+  }
+  if (rec.runtime === 'cloud') {
+    return { ok: false, error: 'Commit & push is only for local cats.' };
+  }
+  if (String(rec.runStatus || '').toLowerCase() === 'running') {
+    return { ok: false, error: 'Agent is still running. Wait for it to finish, then try again.' };
+  }
+  const folder = rec.folder;
+  if (!String(folder || '').trim()) {
+    return { ok: false, error: 'Missing folder for this cat.' };
+  }
+  const hasChanges = await folderHasChangesSinceSnapshot(folder, rec.snapshotTree, log);
+  if (!hasChanges) {
+    return { ok: false, error: 'No changes to commit.' };
+  }
+  const branch = await getGitBranchName(folder);
+  const promptBit = String(rec.prompt || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 72);
+  const message = promptBit ? `cursorcats: ${promptBit}` : 'cursorcats: agent changes';
+  try {
+    await execFileAsync('git', ['add', '-A'], { cwd: folder, encoding: 'utf8' });
+    await execFileAsync('git', ['commit', '-m', message], { cwd: folder, encoding: 'utf8' });
+    await execFileAsync('git', ['push'], { cwd: folder, encoding: 'utf8' });
+  } catch (e) {
+    const msg = (e && e.message) || String(e);
+    log.warn('commitAndPushAgentChanges failed', e);
+    return { ok: false, error: msg };
+  }
+  const snap = await captureGitSnapshotForFolder(folder, log);
+  if (snap) {
+    rec.snapshotTree = snap.tree;
+    rec.headShaAtSnapshot = snap.headSha != null ? String(snap.headSha) : undefined;
+    rec.snapshotCapturedAt = snap.capturedAt;
+  }
+  const branchLabel = branch || 'remote';
+  rec.items.push({
+    kind: 'system',
+    text: `Committed and pushed to ${branchLabel}.`,
+    at: now(),
+  });
+  onConversationPushed({ catId: id });
+  return { ok: true, branch };
 }
 
 /**
@@ -678,10 +888,17 @@ function initConversationState(catId, { runtime, folder, prompt, cloudRepo, skil
   onConversationPushed({ catId });
 }
 
-function getAgentConversation(catId) {
+async function getAgentConversation(catId) {
   const c = conversations.get(String(catId));
   if (!c) return { found: false, items: [] };
   const hasSnapshot = !!c.snapshotTree;
+  const isLocal = (c.runtime || 'local') !== 'cloud';
+  let hasGitChanges = false;
+  let gitBranch = null;
+  if (isLocal && hasSnapshot && !c.reverted && c.folder) {
+    hasGitChanges = await folderHasChangesSinceSnapshot(c.folder, c.snapshotTree);
+    gitBranch = await getGitBranchName(c.folder);
+  }
   return {
     found: true,
     runtime: c.runtime || 'local',
@@ -695,6 +912,8 @@ function getAgentConversation(catId) {
     answerHtmlFileUrl: c.answerHtmlFileUrl || null,
     answerHtmlWriteError: c.answerHtmlWriteError || null,
     canRevert: hasSnapshot,
+    hasGitChanges,
+    gitBranch,
     reverted: !!c.reverted,
     revertError: c.revertError != null ? String(c.revertError) : null,
     cloudRepoUrl: c.cloudRepoUrl || null,
@@ -1097,4 +1316,5 @@ module.exports = {
   dismissAgent,
   sendFollowup,
   revertAgentChanges,
+  commitAndPushAgentChanges,
 };

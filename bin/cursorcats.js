@@ -79,9 +79,16 @@ if (process.argv[2] === 'remove-hooks') {
   process.exit(0);
 }
 
+try {
+  const envFile = require(path.join(pkgRoot, 'out', 'main', 'env-file.js'));
+  envFile.loadEnvFileIntoProcess(pkgRoot);
+} catch {
+  // ignore until package is built
+}
+
 if (!process.env.CURSOR_API_KEY) {
   console.error(
-    '[cursorcats] Warning: CURSOR_API_KEY is not set. New Cursor Cat agents will not run; set it before launching if you use that feature.'
+    '[cursorcats] Warning: CURSOR_API_KEY is not set. Add it to .env in the package folder or enter it when spawning a cat.'
   );
 }
 

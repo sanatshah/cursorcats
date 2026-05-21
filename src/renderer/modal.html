@@ -56,6 +56,24 @@
         </div>
       </div>
 
+      <section id="api-key-section" class="api-key-section" hidden>
+        <div class="section-title">Cursor API key</div>
+        <p class="api-key-hint">
+          No <code>CURSOR_API_KEY</code> in your <code>.env</code> yet. Paste a key from
+          <button type="button" id="api-key-dashboard-link" class="api-key-link">Cursor settings</button>
+          — we’ll save it there when you spawn.
+        </p>
+        <label class="api-key-label" for="api-key-input">API key</label>
+        <input
+          id="api-key-input"
+          class="api-key-input"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="key_…"
+        />
+      </section>
+
       <div class="runtime-row" role="radiogroup" aria-label="Agent runtime">
         <button
           id="runtime-local"
@@ -89,7 +107,7 @@
             </svg>
           </div>
           <div class="item-content">
-            <div class="item-title">New Project</div>
+            <div class="item-title">Open Project</div>
             <div class="item-subtitle">Choose a folder…</div>
           </div>
           <div class="item-shortcut">
@@ -132,7 +150,7 @@
         <span id="error" class="error" role="alert" hidden></span>
         <div class="footer-actions">
           <span id="spawn-hint" class="hint"></span>
-          <button id="btn-create-cat" class="primary-action" type="button">Create Cat</button>
+          <button id="btn-create-cat" class="primary-action" type="button">Spawn</button>
         </div>
       </div>
     </div>

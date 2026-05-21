@@ -49,6 +49,10 @@ const cloudProjectSection = document.getElementById('cloud-project-section');
 const cloudReposList = document.getElementById('cloud-repos-list');
 const cloudStartingRefInput = document.getElementById('cloud-starting-ref');
 const cloudRepoSearchInput = document.getElementById('cloud-repo-search');
+const apiKeySection = document.getElementById('api-key-section');
+const apiKeyInput = document.getElementById('api-key-input');
+
+let needsApiKey = false;
 
 const DEFAULT_MODEL_ID = 'composer-2';
 
@@ -341,10 +345,50 @@ function addFolderToList(folder, isSelected, append = false) {
   
   contentDiv.appendChild(titleDiv);
   contentDiv.appendChild(subtitleDiv);
-  
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'recent-folder-remove';
+  removeBtn.setAttribute('aria-label', `Remove ${folder.split(/[/\\]/).pop() || folder} from recent projects`);
+  removeBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6"></polyline>
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+      <line x1="10" y1="11" x2="10" y2="17"></line>
+      <line x1="14" y1="11" x2="14" y2="17"></line>
+    </svg>
+  `;
+  removeBtn.addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!window.cursorcats?.removeRecentFolder) return;
+    let ok = false;
+    try {
+      ok = await window.cursorcats.removeRecentFolder(folder);
+    } catch {
+      ok = false;
+    }
+    if (!ok) return;
+    item.remove();
+    if (selectedFolder === folder) {
+      const remaining = recentFoldersList
+        ? Array.from(recentFoldersList.querySelectorAll('.recent-folder-item')).map((el) => el.dataset.folder)
+        : [];
+      selectedFolder = remaining[0] || '';
+    }
+    if (recentFoldersList && recentFoldersList.querySelectorAll('.recent-folder-item').length === 0) {
+      recentFoldersContainer.hidden = true;
+    }
+    syncFolderDisplay();
+    invalidateSkillsCache();
+    syncPromptHeight();
+    promptEl.focus();
+  });
+
   item.appendChild(iconDiv);
   item.appendChild(contentDiv);
-  
+  item.appendChild(removeBtn);
+
   item.addEventListener('click', () => {
     selectedFolder = folder;
     syncFolderDisplay();
@@ -457,16 +501,20 @@ async function loadRecentFolders() {
   if (!window.cursorcats?.getRecentFolders) return;
   try {
     const folders = await window.cursorcats.getRecentFolders();
-    if (folders && folders.length > 0) {
-      if (!selectedFolder) {
-        selectedFolder = folders[0];
-      }
-      
-      recentFoldersList.innerHTML = '';
-      folders.forEach(folder => {
-        addFolderToList(folder, folder === selectedFolder, true);
-      });
+    const list = Array.isArray(folders) ? folders : [];
+    recentFoldersList.innerHTML = '';
+    if (list.length === 0) {
+      recentFoldersContainer.hidden = true;
+      syncPromptHeight();
+      return;
     }
+    if (!selectedFolder || !list.includes(selectedFolder)) {
+      selectedFolder = list[0];
+    }
+    recentFoldersContainer.hidden = false;
+    list.forEach((folder) => {
+      addFolderToList(folder, folder === selectedFolder, true);
+    });
   } catch (e) {
     // ignore
   }
@@ -586,9 +634,38 @@ async function onChooseFolder() {
   }
 }
 
-function submit() {
+async function ensureApiKeySaved() {
+  if (!needsApiKey) return true;
+  const key = apiKeyInput ? apiKeyInput.value.trim() : '';
+  if (!key) {
+    setError('Enter your Cursor API key.');
+    apiKeyInput?.focus();
+    return false;
+  }
+  if (!window.cursorcats?.saveCursorApiKey) {
+    setError('Could not save API key. Try reopening CursorCats.');
+    return false;
+  }
+  try {
+    const result = await window.cursorcats.saveCursorApiKey(key);
+    if (!result || !result.ok) {
+      setError(result?.error || 'Could not save API key to .env.');
+      return false;
+    }
+    needsApiKey = false;
+    if (apiKeySection) apiKeySection.hidden = true;
+    if (apiKeyInput) apiKeyInput.value = '';
+    return true;
+  } catch {
+    setError('Could not save API key to .env.');
+    return false;
+  }
+}
+
+async function submit() {
   setError('');
   closeSkillMenu();
+  if (!(await ensureApiKeySaved())) return;
   const prompt = (promptEl.value || '').trim();
   const runtime = normalizeRuntime(selectedRuntime);
   if (runtime === 'local') {
@@ -813,6 +890,39 @@ if (cloudRepoSearchInput) {
   });
 }
 
+if (apiKeyInput) {
+  apiKeyInput.addEventListener('input', () => {
+    syncPromptHeight();
+  });
+  apiKeyInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void submit();
+    }
+  });
+}
+
+const apiKeyDashboardLink = document.getElementById('api-key-dashboard-link');
+if (apiKeyDashboardLink) {
+  apiKeyDashboardLink.addEventListener('click', () => {
+    void window.cursorcats?.openExternalUrl?.('https://cursor.com/dashboard');
+  });
+}
+
+async function initApiKeySection() {
+  if (!window.cursorcats?.hasCursorApiKey) return;
+  try {
+    const status = await window.cursorcats.hasCursorApiKey();
+    needsApiKey = !(status && status.configured);
+    if (needsApiKey && apiKeySection) {
+      apiKeySection.hidden = false;
+      syncPromptHeight();
+    }
+  } catch {
+    needsApiKey = false;
+  }
+}
+
 document.addEventListener(
   'mousedown',
   (e) => {
@@ -954,7 +1064,11 @@ window.addEventListener('load', () => {
 
 void (async () => {
   syncRuntimeDisplay();
-  await Promise.all([loadRecentFolders(), initModels(), ensureSkillsLoaded()]);
-  promptEl.focus();
+  await Promise.all([loadRecentFolders(), initModels(), ensureSkillsLoaded(), initApiKeySection()]);
+  if (needsApiKey && apiKeyInput) {
+    apiKeyInput.focus();
+  } else {
+    promptEl.focus();
+  }
   syncPromptHeight();
 })();

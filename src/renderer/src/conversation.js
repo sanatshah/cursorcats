@@ -9,6 +9,9 @@ const metaEl = document.getElementById('meta');
 const closeBtn = document.getElementById('btn-close');
 const dismissBtn = document.getElementById('btn-dismiss');
 const revertBtn = document.getElementById('btn-revert');
+const commitPushWrap = document.getElementById('commit-push-wrap');
+const commitPushBtn = document.getElementById('btn-commit-push');
+const commitPushBranch = document.getElementById('commit-push-branch');
 const revertErrorRow = document.getElementById('revert-error-row');
 const revertErrorEl = document.getElementById('revert-error');
 const answerToggleBar = document.getElementById('answer-toggle-bar');
@@ -35,6 +38,9 @@ let unsubUpdated = null;
 /** @type {{ runStatus?: string, canRevert?: boolean, reverted?: boolean, revertError?: string | null } | null} */
 let lastData = null;
 let revertInFlight = false;
+let commitPushInFlight = false;
+/** @type {string | null} */
+let commitPushError = null;
 
 function escapeText(s) {
   const t = String(s);
@@ -88,6 +94,41 @@ function updateRevertFromData(data) {
   } else {
     revertBtn.disabled = running;
     revertBtn.textContent = 'Revert changes';
+  }
+}
+
+/**
+ * @param {{ found?: boolean, hasGitChanges?: boolean, gitBranch?: string | null, runStatus?: string, reverted?: boolean, runtime?: string } | null} data
+ */
+function updateCommitPushFromData(data) {
+  if (!commitPushWrap || !commitPushBtn || !commitPushBranch) return;
+  if (
+    !data ||
+    !data.found ||
+    data.runtime === 'cloud' ||
+    !data.hasGitChanges ||
+    data.reverted
+  ) {
+    commitPushWrap.hidden = true;
+    commitPushBranch.textContent = '';
+    return;
+  }
+  commitPushWrap.hidden = false;
+  const branch = data.gitBranch ? String(data.gitBranch) : '';
+  commitPushBranch.textContent = branch || 'branch';
+  const running = String(data.runStatus || '').toLowerCase() === 'running';
+  if (commitPushInFlight) {
+    commitPushBtn.disabled = true;
+    commitPushBtn.textContent = 'Pushing…';
+  } else {
+    commitPushBtn.disabled = running;
+    commitPushBtn.textContent = 'Commit & push';
+  }
+  if (commitPushError) {
+    commitPushBranch.textContent = commitPushError;
+    commitPushBranch.classList.add('commit-push-branch--error');
+  } else {
+    commitPushBranch.classList.remove('commit-push-branch--error');
   }
 }
 
@@ -228,6 +269,7 @@ async function render() {
     updateComposerFromData(null);
     updateAnswerPagePanel(null);
     updateRevertFromData(null);
+    updateCommitPushFromData(null);
     updateRevertErrorRow(null);
     updateCloudResultRow(null);
     return;
@@ -239,6 +281,7 @@ async function render() {
     updateComposerFromData(null);
     updateAnswerPagePanel(null);
     updateRevertFromData(null);
+    updateCommitPushFromData(null);
     updateRevertErrorRow(null);
     updateCloudResultRow(null);
     return;
@@ -267,6 +310,7 @@ async function render() {
   updateComposerFromData(data);
   updateAnswerPagePanel(data);
   updateRevertFromData(data);
+  updateCommitPushFromData(data);
   updateRevertErrorRow(data);
   updateCloudResultRow(data);
 }
@@ -330,6 +374,32 @@ if (revertBtn) {
       await window.cursorcats.revertCat(catId);
     } finally {
       revertInFlight = false;
+      void render();
+    }
+  });
+}
+
+if (commitPushBtn) {
+  commitPushBtn.addEventListener('click', async () => {
+    if (!catId || typeof window.cursorcats?.commitPushCat !== 'function') return;
+    if (commitPushInFlight) return;
+    if (lastData && String(lastData.runStatus || '').toLowerCase() === 'running') return;
+    if (lastData && lastData.reverted) return;
+    if (lastData && !lastData.hasGitChanges) return;
+    commitPushInFlight = true;
+    commitPushError = null;
+    updateCommitPushFromData(lastData);
+    try {
+      const result = await window.cursorcats.commitPushCat(catId);
+      if (result && result.cancelled) return;
+      if (!result || !result.ok) {
+        commitPushError =
+          result && result.error ? String(result.error).slice(0, 80) : 'Push failed';
+      } else {
+        commitPushError = null;
+      }
+    } finally {
+      commitPushInFlight = false;
       void render();
     }
   });

@@ -36,6 +36,7 @@
   "dependencies": {
     "@cursor/sdk": "^1.0.7",
     "electron": "^35.0.0",
-    "get-windows": "^9.3.0"
+    "get-windows": "^9.3.0",
+    "marked": "^15.0.12"
   }
 }
