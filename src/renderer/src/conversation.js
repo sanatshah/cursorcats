@@ -5,6 +5,7 @@ import { insertNewlineAtCursor } from './insert-newline-at-cursor.js';
 const params = new URLSearchParams(window.location.search);
 const catId = params.get('catId');
 const logEl = document.getElementById('log');
+const promptSentEl = document.getElementById('prompt-sent');
 const metaEl = document.getElementById('meta');
 const closeBtn = document.getElementById('btn-close');
 const dismissBtn = document.getElementById('btn-dismiss');
@@ -64,6 +65,35 @@ function kindToLabel(k) {
 function kindClass(k) {
   const safe = String(k).replace(/[^a-z0-9-]/gi, '') || 'item';
   return `line--${safe}`;
+}
+
+/**
+ * @param {{ locationLabel?: string, folder?: string, prompt?: string, found?: boolean } | null} data
+ */
+function updateHeaderFromData(data) {
+  const location =
+    data && data.found ? data.locationLabel || data.folder || '' : '';
+  const prompt = data && data.found && data.prompt ? String(data.prompt) : '';
+
+  if (promptSentEl) {
+    if (prompt) {
+      promptSentEl.hidden = false;
+      promptSentEl.textContent = prompt;
+    } else {
+      promptSentEl.hidden = true;
+      promptSentEl.textContent = '';
+    }
+  }
+
+  if (metaEl) {
+    if (location) {
+      metaEl.hidden = false;
+      metaEl.textContent = location;
+    } else {
+      metaEl.hidden = true;
+      metaEl.textContent = '';
+    }
+  }
 }
 
 function updateComposerFromData(data) {
@@ -266,6 +296,7 @@ function updateAnswerPagePanel(data) {
 async function render() {
   if (!window.cursorcats?.getAgentConversation || !catId) {
     logEl.textContent = 'No conversation to show.';
+    updateHeaderFromData(null);
     updateComposerFromData(null);
     updateAnswerPagePanel(null);
     updateRevertFromData(null);
@@ -278,6 +309,7 @@ async function render() {
   lastData = data;
   if (!data || !data.found) {
     logEl.textContent = 'This conversation is not available yet, or the agent was not started.';
+    updateHeaderFromData(null);
     updateComposerFromData(null);
     updateAnswerPagePanel(null);
     updateRevertFromData(null);
@@ -287,13 +319,7 @@ async function render() {
     return;
   }
 
-  if (data.locationLabel || data.folder) {
-    metaEl.hidden = false;
-    const location = data.locationLabel || data.folder;
-    metaEl.textContent = data.prompt ? `${location} — “${data.prompt}”` : location;
-  } else {
-    metaEl.hidden = true;
-  }
+  updateHeaderFromData(data);
 
   logEl.innerHTML = (data.items || [])
     .filter((item) => item.kind !== 'status')

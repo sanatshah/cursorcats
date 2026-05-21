@@ -46,32 +46,60 @@ body {
 .header {
   position: relative;
   flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  padding: 12px 320px 12px 16px;
+  padding: 12px 44px 12px 16px;
   border-bottom: 1px solid rgba(237, 236, 236, 0.08);
 }
 
-.meta {
+.header-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.header-prompt-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.header-prompt {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: break-word;
+  color: rgba(237, 236, 236, 0.92);
+}
+
+.header-location {
   margin: 0;
   font-size: 11px;
   word-break: break-all;
   color: rgba(237, 236, 236, 0.4);
 }
 
-.header-btn.dismiss-btn {
-  position: absolute;
-  right: 44px;
-  top: 10px;
+.header-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 10px;
+}
+
+.header-btn {
+  flex: 0 0 auto;
   padding: 4px 10px;
   font-size: 12px;
   font-weight: 500;
   border-radius: 6px;
-  border: 1px solid #2b2923;
   cursor: pointer;
+  transition: color 0.1s, background 0.1s, border-color 0.1s, opacity 0.1s;
+}
+
+.header-btn.dismiss-btn {
+  border: 1px solid #2b2923;
   background: #201e18;
   color: rgba(237, 236, 236, 0.9);
-  transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
 
 .header-btn.dismiss-btn:hover {
@@ -81,14 +109,11 @@ body {
 }
 
 .commit-push-wrap {
-  position: absolute;
-  right: 200px;
-  top: 8px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px;
-  max-width: 108px;
+  max-width: min(160px, 100%);
 }
 
 .commit-push-branch {
@@ -99,7 +124,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: center;
 }
 
 .commit-push-branch--error {
@@ -107,15 +131,9 @@ body {
 }
 
 .header-btn.commit-push-btn {
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 6px;
   border: 1px solid rgba(245, 78, 0, 0.55);
-  cursor: pointer;
   background: #f54e00;
   color: #fff;
-  transition: color 0.1s, background 0.1s, border-color 0.1s, opacity 0.1s;
 }
 
 .header-btn.commit-push-btn:hover:not(:disabled) {
@@ -129,18 +147,9 @@ body {
 }
 
 .header-btn.revert-btn {
-  position: absolute;
-  right: 318px;
-  top: 10px;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 6px;
   border: 1px solid rgba(245, 78, 0, 0.45);
-  cursor: pointer;
   background: rgba(245, 78, 0, 0.15);
   color: #f54e00;
-  transition: color 0.1s, background 0.1s, border-color 0.1s, opacity 0.1s;
 }
 
 .header-btn.revert-btn:hover:not(:disabled) {
