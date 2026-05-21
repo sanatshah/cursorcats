@@ -22,26 +22,30 @@
             <p class="header-location" id="meta" hidden></p>
           </div>
           <div class="header-actions-row">
-            <button type="button" id="btn-revert" class="header-btn revert-btn" hidden>
-              Revert changes
-            </button>
-            <div id="commit-push-wrap" class="commit-push-wrap" hidden>
-              <button type="button" id="btn-commit-push" class="header-btn commit-push-btn">
-                Commit &amp; push
+            <div class="header-actions-left">
+              <button type="button" id="btn-revert" class="header-btn revert-btn" hidden>
+                Revert changes
               </button>
-              <span id="commit-push-branch" class="commit-push-branch"></span>
+              <button
+                type="button"
+                id="btn-view-conversation"
+                class="header-btn view-conversation-btn"
+                hidden
+              >
+                View conversation
+              </button>
             </div>
-            <button
-              type="button"
-              id="btn-view-conversation"
-              class="header-btn view-conversation-btn"
-              hidden
-            >
-              View conversation
-            </button>
-            <button type="button" id="btn-dismiss" class="header-btn dismiss-btn">
-              Finish Conversation
-            </button>
+            <div class="header-actions-right">
+              <div id="commit-push-wrap" class="commit-push-wrap" hidden>
+                <button type="button" id="btn-commit-push" class="header-btn commit-push-btn">
+                  Commit &amp; push
+                </button>
+                <span id="commit-push-branch" class="commit-push-branch"></span>
+              </div>
+              <button type="button" id="btn-dismiss" class="header-btn dismiss-btn">
+                Finish Conversation
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -78,8 +82,8 @@
             id="followup-input"
             class="composer-input"
             rows="2"
-            placeholder="Message the agent… (Enter send · ⌘/Ctrl+Enter or Shift+Enter newline)"
-            aria-label="Message to agent"
+            placeholder="Message the cat"
+            aria-label="Message the cat"
             autocomplete="off"
           ></textarea>
           <button type="button" id="btn-send" class="composer-send">Send</button>

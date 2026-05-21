@@ -105,11 +105,17 @@ function updateComposerFromData(data) {
 }
 
 /**
- * @param {{ canRevert?: boolean, reverted?: boolean, runStatus?: string, found?: boolean } | null} data
+ * @param {{ hasGitChanges?: boolean, reverted?: boolean, runStatus?: string, found?: boolean, runtime?: string } | null} data
  */
 function updateRevertFromData(data) {
   if (!revertBtn) return;
-  if (!data || !data.found || !data.canRevert) {
+  if (
+    !data ||
+    !data.found ||
+    data.runtime === 'cloud' ||
+    (!data.hasGitChanges && !revertInFlight) ||
+    (data.reverted && !revertInFlight)
+  ) {
     revertBtn.hidden = true;
     return;
   }
@@ -118,9 +124,6 @@ function updateRevertFromData(data) {
   if (revertInFlight) {
     revertBtn.disabled = true;
     revertBtn.textContent = 'Reverting…';
-  } else if (data.reverted) {
-    revertBtn.disabled = true;
-    revertBtn.textContent = 'Reverted';
   } else {
     revertBtn.disabled = running;
     revertBtn.textContent = 'Revert changes';

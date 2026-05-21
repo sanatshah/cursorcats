@@ -10,11 +10,15 @@ const CURSORCATS_SHELL_KEY_END = '# <<< cursorcats CURSOR_API_KEY <<<';
 /**
  * @param {string | null | undefined} value
  */
-function isValidCursorApiKey(value) {
-  const s = String(value || '').trim();
-  if (!s || s.length < 12) return false;
-  if (/^https?:\/\//i.test(s) || s.includes('://')) return false;
-  return s.startsWith('key_');
+function normalizeCursorApiKeyInput(value) {
+  let s = String(value || '').trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
 }
 
 /**
@@ -76,7 +80,8 @@ function readShellRcCursorApiKey(rcPath) {
  * @param {string | null} rcPath
  */
 function hasCursorApiKeyInShellRc(rcPath) {
-  return isValidCursorApiKey(readShellRcCursorApiKey(rcPath));
+  const v = readShellRcCursorApiKey(rcPath);
+  return typeof v === 'string' && v.length > 0;
 }
 
 /**
@@ -110,8 +115,8 @@ function upsertShellRcCursorApiKey(rcPath, apiKey) {
  */
 function loadCursorApiKeyIntoProcess() {
   const fromShell = readShellRcCursorApiKey(getShellRcPath());
-  if (isValidCursorApiKey(fromShell)) {
-    process.env.CURSOR_API_KEY = fromShell.trim();
+  if (fromShell) {
+    process.env.CURSOR_API_KEY = fromShell;
   }
 }
 
@@ -125,14 +130,9 @@ function cursorApiKeyConfigured() {
  * @returns {{ shellRcPath: string }}
  */
 function setCursorApiKey(apiKey) {
-  const trimmed = String(apiKey || '').trim();
+  const trimmed = normalizeCursorApiKeyInput(apiKey);
   if (!trimmed) {
     throw new Error('API key is empty');
-  }
-  if (!isValidCursorApiKey(trimmed)) {
-    throw new Error(
-      'That does not look like a Cursor API key. Copy a key that starts with key_ from Cursor settings.'
-    );
   }
   const rcPath = getShellRcPath();
   if (!rcPath) {
@@ -144,15 +144,12 @@ function setCursorApiKey(apiKey) {
 }
 
 /**
- * @returns {{ configured: boolean, invalidSavedKey: boolean, shellRcPath: string | null }}
+ * @returns {{ configured: boolean, shellRcPath: string | null }}
  */
 function getCursorApiKeyStatus() {
   const shellRcPath = getShellRcPath();
-  const saved = readShellRcCursorApiKey(shellRcPath);
-  const invalidSavedKey = Boolean(saved && !isValidCursorApiKey(saved));
   return {
     configured: hasCursorApiKeyInShellRc(shellRcPath),
-    invalidSavedKey,
     shellRcPath,
   };
 }
@@ -162,7 +159,7 @@ module.exports = {
   loadCursorApiKeyIntoProcess,
   hasCursorApiKeyInShellRc,
   readShellRcCursorApiKey,
-  isValidCursorApiKey,
+  normalizeCursorApiKeyInput,
   setCursorApiKey,
   cursorApiKeyConfigured,
   getCursorApiKeyStatus,

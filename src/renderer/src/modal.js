@@ -910,27 +910,8 @@ if (apiKeyDashboardLink) {
   });
 }
 
-function showApiKeySection(invalidSavedKey) {
+function showApiKeySection() {
   if (!apiKeySection) return;
-  if (apiKeyHint) {
-    if (invalidSavedKey) {
-      apiKeyHint.innerHTML =
-        'Your shell config has a saved value that is not a valid API key (it should start with <code>key_</code>). Paste a key from ' +
-        '<button type="button" id="api-key-dashboard-link" class="api-key-link">Cursor settings</button> ' +
-        '— we will replace the managed block when you spawn.';
-    } else {
-      apiKeyHint.innerHTML =
-        'No <code>CURSOR_API_KEY</code> saved in your shell config yet. Paste a key from ' +
-        '<button type="button" id="api-key-dashboard-link" class="api-key-link">Cursor settings</button> ' +
-        '— we save it to your <code>.zshrc</code> or <code>.bashrc</code> (managed block) when you spawn.';
-    }
-    const link = document.getElementById('api-key-dashboard-link');
-    if (link) {
-      link.addEventListener('click', () => {
-        void window.cursorcats?.openExternalUrl?.('https://cursor.com/dashboard');
-      });
-    }
-  }
   apiKeySection.hidden = false;
   syncPromptHeight();
 }
@@ -938,18 +919,18 @@ function showApiKeySection(invalidSavedKey) {
 async function initApiKeySection() {
   if (!window.cursorcats?.hasCursorApiKey) {
     needsApiKey = true;
-    showApiKeySection(false);
+    showApiKeySection();
     return;
   }
   try {
     const status = await window.cursorcats.hasCursorApiKey();
     needsApiKey = !(status && status.configured);
     if (needsApiKey) {
-      showApiKeySection(Boolean(status?.invalidSavedKey));
+      showApiKeySection();
     }
   } catch {
     needsApiKey = true;
-    showApiKeySection(false);
+    showApiKeySection();
   }
 }
 

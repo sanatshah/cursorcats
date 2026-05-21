@@ -83,7 +83,20 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 8px 10px;
+}
+
+.header-actions-left,
+.header-actions-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 10px;
+}
+
+.header-actions-right {
+  margin-left: auto;
 }
 
 .header-btn {
