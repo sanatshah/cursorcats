@@ -129,6 +129,11 @@ body {
   max-width: min(160px, 100%);
 }
 
+/* Author `display: flex` above must not beat the HTML [hidden] attribute. */
+.commit-push-wrap[hidden] {
+  display: none !important;
+}
+
 .commit-push-branch {
   font-size: 10px;
   line-height: 1.2;
