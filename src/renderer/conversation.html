@@ -31,6 +31,14 @@
               </button>
               <span id="commit-push-branch" class="commit-push-branch"></span>
             </div>
+            <button
+              type="button"
+              id="btn-view-conversation"
+              class="header-btn view-conversation-btn"
+              hidden
+            >
+              View conversation
+            </button>
             <button type="button" id="btn-dismiss" class="header-btn dismiss-btn">
               Finish Conversation
             </button>
@@ -65,18 +73,13 @@
         </div>
       </div>
       <footer class="composer">
-        <div class="composer-label-row">
-          <label class="composer-label" for="followup-input">Follow up</label>
-          <button type="button" id="btn-view-conversation" class="composer-answer-link" hidden>
-            View conversation
-          </button>
-        </div>
         <div class="composer-row">
           <textarea
             id="followup-input"
             class="composer-input"
             rows="2"
             placeholder="Message the agent… (Enter send · ⌘/Ctrl+Enter or Shift+Enter newline)"
+            aria-label="Message to agent"
             autocomplete="off"
           ></textarea>
           <button type="button" id="btn-send" class="composer-send">Send</button>

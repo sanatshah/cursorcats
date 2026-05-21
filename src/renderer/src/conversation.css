@@ -163,6 +163,18 @@ body {
   cursor: not-allowed;
 }
 
+.header-btn.view-conversation-btn {
+  border: 1px solid rgba(237, 236, 236, 0.18);
+  background: rgba(237, 236, 236, 0.06);
+  color: rgba(237, 236, 236, 0.92);
+}
+
+.header-btn.view-conversation-btn:hover:not(:disabled) {
+  background: rgba(237, 236, 236, 0.1);
+  border-color: rgba(237, 236, 236, 0.28);
+  color: #fff;
+}
+
 .close-btn {
   position: absolute;
   right: 12px;
@@ -403,54 +415,6 @@ footer.composer {
   padding: 10px 16px 12px;
   border-top: 1px solid rgba(237, 236, 236, 0.08);
   background: rgba(0, 0, 0, 0.25);
-}
-
-.composer-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-  min-height: 20px;
-}
-
-.composer-label {
-  display: block;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: rgba(237, 236, 236, 0.45);
-  margin: 0;
-  flex: 0 1 auto;
-}
-
-/* Text-link style (not the solid answer-page pill buttons). */
-.composer-answer-link {
-  flex: 0 0 auto;
-  align-self: center;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-  color: #f54e00;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
-.composer-answer-link:hover {
-  color: #ff6a33;
-}
-
-.composer-answer-link:focus-visible {
-  outline: 2px solid #f54e00;
-  outline-offset: 2px;
-  border-radius: 2px;
 }
 
 .composer-row {
