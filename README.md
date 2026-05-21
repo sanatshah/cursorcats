@@ -10,7 +10,7 @@ Cloud cats use Cursor's cloud agent runtime instead. Choose **Cloud**, pick one 
 
 ## Installation
 
-**Run once without installing** (downloads the repo, runs `prepare`, then launches):
+**[Recommended] Run once without installing** (downloads the repo, runs `prepare`, then launches):
 
 ```bash
 SHELL_RC="$HOME/.bashrc" && [[ "$SHELL" == */zsh ]] && SHELL_RC="$HOME/.zshrc"; grep -q 'alias cursorcats=' "$SHELL_RC" 2>/dev/null || echo 'alias cursorcats="npx --prefer-online -y github:sanatshah/Cursor-Cats"' >> "$SHELL_RC" && source "$SHELL_RC"

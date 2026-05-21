@@ -652,6 +652,12 @@ async function ensureApiKeySaved() {
       setError(result?.error || 'Could not save API key to .env.');
       return false;
     }
+    if (result.shellRcError) {
+      setError(
+        `Key saved to .env. Could not update shell config: ${result.shellRcError}` +
+          (result.shellRcPath ? ` (${result.shellRcPath})` : '')
+      );
+    }
     needsApiKey = false;
     if (apiKeySection) apiKeySection.hidden = true;
     if (apiKeyInput) apiKeyInput.value = '';

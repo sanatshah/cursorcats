@@ -88,7 +88,7 @@ try {
 
 if (!process.env.CURSOR_API_KEY) {
   console.error(
-    '[cursorcats] Warning: CURSOR_API_KEY is not set. Add it to .env in the package folder or enter it when spawning a cat.'
+    '[cursorcats] Warning: CURSOR_API_KEY is not set. Add it to .env in the package folder, your .zshrc/.bashrc, or enter it when spawning a cat.'
   );
 }
 

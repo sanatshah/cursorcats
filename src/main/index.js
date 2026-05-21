@@ -664,8 +664,13 @@ ipcMain.handle('has-cursor-api-key', () => ({
 
 ipcMain.handle('save-cursor-api-key', (_event, apiKey) => {
   try {
-    const envPath = envFile.setCursorApiKey(getPackageRoot(), apiKey);
-    return { ok: true, path: envPath };
+    const { envPath, shellRc } = envFile.setCursorApiKey(getPackageRoot(), apiKey);
+    return {
+      ok: true,
+      path: envPath,
+      shellRcPath: shellRc.path,
+      shellRcError: shellRc.error,
+    };
   } catch (e) {
     return { ok: false, error: (e && e.message) || String(e) };
   }
