@@ -31,6 +31,7 @@ cursorcats
 
 - **Launch**: `cursorcats` (or `npx github:sanatshah/Cursor-Cats`).
 - While the app is running, use **Cmd+Shift+C** (macOS) or **Ctrl+Shift+C** (Windows/Linux) to add a new Cursor Cat.
+- Use **Cmd+Shift+C+H** (macOS) or **Ctrl+Shift+C+H** (Windows/Linux) to show or hide cats on screen.
 - **Local runs**: choose a folder on disk. Finished local cats can revert changes back to the folder snapshot captured when the cat spawned.
 - **Cloud runs**: choose a connected repository from the Cloud tab. Finished cloud cats show returned branch/PR links in the conversation window; local revert is not available for cloud runs.
 

@@ -1090,15 +1090,25 @@ async function ensureAgent(catId, target, notify, log, modelId) {
  * @param {Console} log
  * @param {string} prompt
  */
-function runOnAgent(catId, notify, log, prompt) {
+/**
+ * @param {string} catId
+ * @param {(payload: object) => void} notify
+ * @param {Console} log
+ * @param {string} prompt
+ * @param {{ onRunSkipped?: (reason: string) => void }} [hooks]
+ */
+function runOnAgent(catId, notify, log, prompt, hooks = {}) {
   const id = String(catId);
   const entry = active.get(id);
+  const onRunSkipped = typeof hooks.onRunSkipped === 'function' ? hooks.onRunSkipped : null;
   if (!entry?.agent) {
     log.warn('runOnAgent: no agent for', id);
+    if (onRunSkipped) onRunSkipped('no-agent');
     return Promise.resolve();
   }
   if (entry.busy || entry.run) {
     log.warn('runOnAgent: busy', id);
+    if (onRunSkipped) onRunSkipped('busy');
     return Promise.resolve();
   }
 
@@ -1230,7 +1240,20 @@ function runOnAgent(catId, notify, log, prompt) {
   return work;
 }
 
-async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudRepo, skills, catAgent, notify, log }) {
+async function runAgentLifecycle({
+  catId,
+  folder,
+  prompt,
+  model,
+  runtime,
+  cloudRepo,
+  skills,
+  catAgent,
+  notify,
+  log,
+  onRunSkipped,
+}) {
+  const lifecycleHooks = { onRunSkipped };
   const id = String(catId);
   const target = normalizeAgentTarget({ runtime, folder, cloudRepo });
   const apiKey = process.env.CURSOR_API_KEY;
@@ -1310,14 +1333,19 @@ async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudR
     return;
   }
 
-  void runOnAgent(id, notify, log, String(prompt));
+  void runOnAgent(id, notify, log, String(prompt), {
+    onRunSkipped: lifecycleHooks.onRunSkipped,
+  });
 }
 
 /**
  * Starts an async agent run for this cat. Does not block. Completion is
  * reported via `agent-finished` on the main window.
  */
-function startAgentForCat({ catId, folder, prompt, model, runtime, cloudRepo, skills, catAgent }, { getMainWindow, log = console } = {}) {
+function startAgentForCat(
+  { catId, folder, prompt, model, runtime, cloudRepo, skills, catAgent },
+  { getMainWindow, log = console, onRunSkipped } = {}
+) {
   const notify = getNotify(getMainWindow);
   void runAgentLifecycle({
     catId: String(catId),
@@ -1330,6 +1358,7 @@ function startAgentForCat({ catId, folder, prompt, model, runtime, cloudRepo, sk
     catAgent,
     notify,
     log,
+    onRunSkipped,
   });
 }
 

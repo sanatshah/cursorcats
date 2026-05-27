@@ -1746,22 +1746,6 @@
   }
 
   function applyAgentFinishToCat(cat, ev) {
-    if (cat.catAgentId) {
-      const status = ev && ev.status != null ? String(ev.status) : 'unknown';
-      const endText =
-        ev && ev.result != null && String(ev.result).length > 0
-          ? String(ev.result)
-          : ev && ev.endResult != null
-            ? String(ev.endResult)
-            : '';
-      cat.endStatus = status;
-      cat.endResult = endText;
-      destroyStreamBubble(cat);
-      destroyFinishBubble(cat);
-      detachPartnerIfInteracting(cat);
-      if (cat.catId != null) reactivateCat(cat.catId);
-      return;
-    }
     const status = ev && ev.status != null ? String(ev.status) : 'unknown';
     const endText =
       ev && ev.result != null && String(ev.result).length > 0

@@ -9,19 +9,6 @@ if (headerAppIcon) {
   headerAppIcon.style.backgroundImage = `url("${catSpriteUrl}")`;
 }
 const errorEl = document.getElementById('error');
-const hintEl = document.getElementById('spawn-hint');
-
-const isApple =
-  /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-  (navigator.userAgentData?.platform || '').toLowerCase().includes('mac');
-
-if (hintEl) {
-  if (isApple) {
-    hintEl.innerHTML = '<kbd>⌘</kbd>+<kbd>O</kbd> folder · <kbd>Esc</kbd> cancel';
-  } else {
-    hintEl.innerHTML = '<kbd>Ctrl</kbd>+<kbd>O</kbd> folder · <kbd>Esc</kbd> cancel';
-  }
-}
 const btnChoose = document.getElementById('btn-choose-folder');
 const recentFoldersContainer = document.getElementById('recent-folders-container');
 const recentFoldersList = document.getElementById('recent-folders-list');
@@ -35,9 +22,12 @@ const btnCreateCat = document.getElementById('btn-create-cat');
 const runtimeLocalBtn = document.getElementById('runtime-local');
 const runtimeCloudBtn = document.getElementById('runtime-cloud');
 const runtimeAgentsBtn = document.getElementById('runtime-agents');
+const createCatAgentWrap = document.getElementById('create-cat-agent-wrap');
 const createCatAgentToggle = document.getElementById('create-cat-agent-toggle');
 const catAgentNameRow = document.getElementById('cat-agent-name-row');
 const catAgentNameInput = document.getElementById('cat-agent-name');
+const catAgentHeartbeatRow = document.getElementById('cat-agent-heartbeat-row');
+const catAgentHeartbeatSelect = document.getElementById('cat-agent-heartbeat');
 const projectSectionTitle = document.getElementById('project-section-title');
 const localProjectSection = document.getElementById('local-project-section');
 const cloudProjectSection = document.getElementById('cloud-project-section');
@@ -69,6 +59,63 @@ let modelMenuOpen = false;
 let selectedFolder = '';
 /** @type {'local' | 'cloud' | 'agents'} */
 let selectedRuntime = 'local';
+const DEFAULT_HEARTBEAT_MINUTES = 15;
+/** 5 min, then 15-min steps up to 24 h — keep in sync with cat-agents.js */
+const HEARTBEAT_INTERVAL_MINUTES = [
+  5,
+  ...Array.from({ length: (24 * 60 - 15) / 15 + 1 }, (_, i) => 15 + i * 15),
+];
+
+function formatHeartbeatInterval(minutes) {
+  const m = Math.max(1, Math.round(minutes));
+  if (m < 60) return `${m} min`;
+  const hours = Math.floor(m / 60);
+  const rem = m % 60;
+  const hrLabel = hours === 1 ? '1 hr' : `${hours} hr`;
+  if (rem === 0) return hrLabel;
+  return `${hrLabel} ${rem} min`;
+}
+
+function snapHeartbeatMinutes(minutes) {
+  const rounded = Math.max(1, Math.round(minutes));
+  let best = HEARTBEAT_INTERVAL_MINUTES[0];
+  let bestDist = Math.abs(rounded - best);
+  for (const candidate of HEARTBEAT_INTERVAL_MINUTES) {
+    const dist = Math.abs(rounded - candidate);
+    if (dist < bestDist) {
+      best = candidate;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function populateHeartbeatSelect() {
+  if (!catAgentHeartbeatSelect || catAgentHeartbeatSelect.options.length) return;
+  for (const minutes of HEARTBEAT_INTERVAL_MINUTES) {
+    const opt = document.createElement('option');
+    opt.value = String(minutes);
+    opt.textContent = formatHeartbeatInterval(minutes);
+    catAgentHeartbeatSelect.appendChild(opt);
+  }
+}
+
+function setHeartbeatMinutes(minutes) {
+  if (!catAgentHeartbeatSelect) return;
+  populateHeartbeatSelect();
+  catAgentHeartbeatSelect.value = String(snapHeartbeatMinutes(minutes));
+}
+
+function getSelectedHeartbeatMs() {
+  if (!catAgentHeartbeatSelect) return DEFAULT_HEARTBEAT_MINUTES * 60 * 1000;
+  const minutes = Number(catAgentHeartbeatSelect.value);
+  return snapHeartbeatMinutes(Number.isFinite(minutes) ? minutes : DEFAULT_HEARTBEAT_MINUTES) * 60 * 1000;
+}
+
+function resetCatAgentFormFields() {
+  if (catAgentNameInput) catAgentNameInput.value = '';
+  setHeartbeatMinutes(DEFAULT_HEARTBEAT_MINUTES);
+}
 let createCatAgentMode = false;
 /** @type {string | null} */
 let editingAgentId = null;
@@ -619,12 +666,11 @@ function syncPrimaryAction() {
 function syncCatAgentControls() {
   const showAgentControls = selectedRuntime === 'local';
   const showNameField = showAgentControls && createCatAgentMode;
-  if (createCatAgentToggle) {
-    createCatAgentToggle.hidden = !showAgentControls;
-    createCatAgentToggle.setAttribute('aria-pressed', createCatAgentMode ? 'true' : 'false');
-    createCatAgentToggle.classList.toggle('selected', createCatAgentMode);
-  }
+  if (createCatAgentWrap) createCatAgentWrap.hidden = !showAgentControls;
+  if (createCatAgentToggle) createCatAgentToggle.checked = createCatAgentMode;
   if (catAgentNameRow) catAgentNameRow.hidden = !showNameField;
+  if (catAgentHeartbeatRow) catAgentHeartbeatRow.hidden = !showNameField;
+  if (showNameField) populateHeartbeatSelect();
   if (promptEl) {
     promptEl.placeholder = showNameField
       ? 'What should this agent do on each heartbeat?'
@@ -659,17 +705,6 @@ function syncRuntimeDisplay() {
         ? 'Cloud Repositories'
         : 'Projects';
   }
-  if (hintEl) {
-    if (agents) {
-      hintEl.innerHTML = '<kbd>Esc</kbd> cancel';
-    } else if (cloud) {
-      hintEl.innerHTML = '<kbd>Esc</kbd> cancel';
-    } else if (isApple) {
-      hintEl.innerHTML = '<kbd>⌘</kbd>+<kbd>O</kbd> folder · <kbd>Esc</kbd> cancel';
-    } else {
-      hintEl.innerHTML = '<kbd>Ctrl</kbd>+<kbd>O</kbd> folder · <kbd>Esc</kbd> cancel';
-    }
-  }
   syncCatAgentControls();
   syncPromptHeight();
 }
@@ -692,7 +727,7 @@ function renderCatAgentsList() {
     const empty = document.createElement('div');
     empty.className = 'cat-agents-empty';
     empty.textContent =
-      'No local cat agents yet. Switch to Local, toggle Create cat agent, name it, and save a purpose.';
+      'No local cat agents yet. Switch to Local, check Create cat agent, name it, and save a purpose.';
     catAgentsList.appendChild(empty);
     syncPromptHeight();
     return;
@@ -734,8 +769,8 @@ function renderCatAgentsList() {
 
     const meta = document.createElement('div');
     meta.className = 'cat-agent-item-meta';
-    const intervalMin = Math.max(1, Math.round((agent.intervalMs || 900000) / 60000));
-    meta.appendChild(document.createTextNode(`Every ${intervalMin} min`));
+    const intervalMin = snapHeartbeatMinutes(Math.round((agent.intervalMs || 900000) / 60000));
+    meta.appendChild(document.createTextNode(`Every ${formatHeartbeatInterval(intervalMin)}`));
     const badge = document.createElement('span');
     const status = String(agent.lastRunStatus || '').toLowerCase();
     badge.className = `cat-agent-badge${status === 'error' ? ' error' : status ? ' ok' : ''}`;
@@ -769,6 +804,7 @@ function renderCatAgentsList() {
       editingAgentId = agent.id;
       createCatAgentMode = true;
       if (catAgentNameInput) catAgentNameInput.value = agent.name || '';
+      setHeartbeatMinutes(Math.round((agent.intervalMs || 900000) / 60000));
       if (promptEl) promptEl.value = agent.purpose || '';
       if (agent.workdir) {
         selectedFolder = agent.workdir;
@@ -819,7 +855,7 @@ async function selectRuntime(runtime) {
   if (selectedRuntime !== 'local') {
     createCatAgentMode = false;
     editingAgentId = null;
-    if (catAgentNameInput) catAgentNameInput.value = '';
+    resetCatAgentFormFields();
     syncCatAgentControls();
   }
   if (window.cursorcats?.setSelectedRuntime && selectedRuntime !== 'agents') {
@@ -906,6 +942,7 @@ async function submit() {
           createCatAgent: true,
           editingAgentId,
           agentName,
+          intervalMs: getSelectedHeartbeatMs(),
         });
       } else {
         setError('Could not reach the app. Try reopening CursorCats.');
@@ -1116,16 +1153,22 @@ if (runtimeAgentsBtn) {
 }
 
 if (createCatAgentToggle) {
-  createCatAgentToggle.addEventListener('click', () => {
+  createCatAgentToggle.addEventListener('change', () => {
     if (selectedRuntime !== 'local') return;
-    createCatAgentMode = !createCatAgentMode;
+    createCatAgentMode = createCatAgentToggle.checked;
     if (!createCatAgentMode) {
       editingAgentId = null;
-      if (catAgentNameInput) catAgentNameInput.value = '';
+      resetCatAgentFormFields();
     }
     syncCatAgentControls();
     syncPromptHeight();
     (createCatAgentMode && catAgentNameInput ? catAgentNameInput : promptEl)?.focus();
+  });
+}
+
+if (catAgentHeartbeatSelect) {
+  catAgentHeartbeatSelect.addEventListener('change', () => {
+    syncPromptHeight();
   });
 }
 
@@ -1359,6 +1402,7 @@ window.addEventListener('load', () => {
 });
 
 void (async () => {
+  populateHeartbeatSelect();
   syncRuntimeDisplay();
   await Promise.all([loadRecentFolders(), initModels(), ensureSkillsLoaded(), initApiKeySection()]);
   if (window.cursorcats?.getSelectedRuntime) {

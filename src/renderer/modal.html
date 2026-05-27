@@ -21,7 +21,7 @@
         ></div>
         <div class="header-input-col">
           <div id="cat-agent-name-row" class="cat-agent-name-row" hidden>
-            <label class="cat-agent-name-label" for="cat-agent-name">Agent name</label>
+            <label class="cat-agent-name-label" for="cat-agent-name">Cat Name</label>
             <input
               id="cat-agent-name"
               class="cat-agent-name-input"
@@ -31,6 +31,10 @@
               placeholder="e.g. Weekly tidy cat"
               maxlength="120"
             />
+          </div>
+          <div id="cat-agent-heartbeat-row" class="cat-agent-heartbeat-row" hidden>
+            <label class="cat-agent-heartbeat-label" for="cat-agent-heartbeat">Heartbeat</label>
+            <select id="cat-agent-heartbeat" class="cat-agent-heartbeat-select"></select>
           </div>
           <div class="prompt-input-wrap">
             <textarea
@@ -46,14 +50,10 @@
           <div class="prompt-meta-wrap">
             <div class="prompt-meta">
               <!-- Model picker deprecated: see MODEL_SELECTION_UI_ENABLED in modal.js -->
-              <button
-                id="create-cat-agent-toggle"
-                class="cat-agent-toggle"
-                type="button"
-                aria-pressed="false"
-              >
-                Create cat agent
-              </button>
+              <label id="create-cat-agent-wrap" class="cat-agent-create" hidden>
+                <input id="create-cat-agent-toggle" type="checkbox" />
+                <span>Create cat agent</span>
+              </label>
             </div>
           </div>
         </div>
@@ -123,9 +123,6 @@
             <div class="item-title">Open Project</div>
             <div class="item-subtitle">Choose a folder…</div>
           </div>
-          <div class="item-shortcut">
-            <kbd>⌘</kbd><kbd>O</kbd>
-          </div>
         </div>
 
         <div id="recent-folders-container" hidden>
@@ -166,7 +163,6 @@
       <div class="footer">
         <span id="error" class="error" role="alert" hidden></span>
         <div class="footer-actions">
-          <span id="spawn-hint" class="hint"></span>
           <button id="btn-create-cat" class="primary-action" type="button">Spawn</button>
         </div>
       </div>

@@ -6,7 +6,30 @@ const os = require('os');
 const { randomUUID } = require('crypto');
 
 const DEFAULT_INTERVAL_MS = 15 * 60 * 1000;
-const MIN_INTERVAL_MS = 60 * 1000;
+const MIN_INTERVAL_MS = 5 * 60 * 1000;
+/** Allowed heartbeat lengths: 5 min, then 15-min steps up to 24 h. */
+const HEARTBEAT_INTERVAL_MINUTES = [
+  5,
+  ...Array.from({ length: (24 * 60 - 15) / 15 + 1 }, (_, i) => 15 + i * 15),
+];
+
+function normalizeIntervalMs(ms) {
+  const minutes = Math.round(
+    (typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? ms : DEFAULT_INTERVAL_MS) / 60000
+  );
+  let best = HEARTBEAT_INTERVAL_MINUTES[0];
+  let bestDist = Math.abs(minutes - best);
+  for (const candidate of HEARTBEAT_INTERVAL_MINUTES) {
+    const dist = Math.abs(minutes - candidate);
+    if (dist < bestDist) {
+      best = candidate;
+      bestDist = dist;
+    }
+  }
+  return best * 60 * 1000;
+}
+/** Retry when a tick is skipped because the prior run is still in flight. */
+const BUSY_RETRY_MS = 90 * 1000;
 
 /** @typedef {{ id: string, name: string, purpose: string, intervalMs: number, runtime: 'local', model?: string, workdir?: string, enabled: boolean, version: number, createdAt: number, updatedAt: number, lastRunAt?: number, lastRunStatus?: string, lastCatId?: string }} CatAgentDoc */
 
@@ -66,7 +89,7 @@ function normalizeAgentDoc(raw) {
   const purpose = typeof raw.purpose === 'string' ? raw.purpose.trim() : '';
   const intervalMs =
     typeof raw.intervalMs === 'number' && raw.intervalMs >= MIN_INTERVAL_MS
-      ? Math.floor(raw.intervalMs)
+      ? normalizeIntervalMs(raw.intervalMs)
       : DEFAULT_INTERVAL_MS;
   const model = typeof raw.model === 'string' && raw.model.trim() ? raw.model.trim() : undefined;
   const workdir = typeof raw.workdir === 'string' && raw.workdir.trim() ? raw.workdir.trim() : undefined;
@@ -163,7 +186,7 @@ function createCatAgent(params) {
   if (!purpose) throw new Error('Purpose is required.');
   const intervalMs =
     typeof params.intervalMs === 'number' && params.intervalMs >= MIN_INTERVAL_MS
-      ? Math.floor(params.intervalMs)
+      ? normalizeIntervalMs(params.intervalMs)
       : DEFAULT_INTERVAL_MS;
   const id = randomUUID();
   const ts = nowMs();
@@ -202,7 +225,7 @@ function updateCatAgent(agentId, patch) {
   const intervalMs =
     patch.intervalMs !== undefined
       ? patch.intervalMs >= MIN_INTERVAL_MS
-        ? Math.floor(patch.intervalMs)
+        ? normalizeIntervalMs(patch.intervalMs)
         : DEFAULT_INTERVAL_MS
       : existing.intervalMs;
   const workdir =
@@ -283,7 +306,7 @@ function patchAgentRunMeta(agentId, patch) {
   });
 }
 
-/** @type {Map<string, ReturnType<typeof setInterval>>} */
+/** @type {Map<string, ReturnType<typeof setTimeout>>} */
 const timers = new Map();
 /** @type {Set<string>} */
 const busy = new Set();
@@ -300,25 +323,61 @@ function setCatAgentRuntimeHooks(hooks) {
 function clearTimer(agentId) {
   const t = timers.get(agentId);
   if (t) {
-    clearInterval(t);
+    clearTimeout(t);
     timers.delete(agentId);
   }
 }
 
-function scheduleAgentTimer(agentId, intervalMs) {
+/**
+ * Milliseconds until this agent's next heartbeat based on lastRunAt + intervalMs.
+ * @param {CatAgentDoc} doc
+ */
+function msUntilNextRun(doc) {
+  const intervalMs = Math.max(MIN_INTERVAL_MS, doc.intervalMs || DEFAULT_INTERVAL_MS);
+  const lastRunAt = typeof doc.lastRunAt === 'number' ? doc.lastRunAt : 0;
+  if (!lastRunAt) return 0;
+  return Math.max(0, lastRunAt + intervalMs - nowMs());
+}
+
+/**
+ * Schedule the next heartbeat from lastRunAt (or an explicit delay for retries).
+ * @param {string} agentId
+ * @param {{ delayMs?: number }} [opts]
+ */
+function scheduleAgentTimer(agentId, opts = {}) {
   clearTimer(agentId);
-  const ms = Math.max(MIN_INTERVAL_MS, intervalMs || DEFAULT_INTERVAL_MS);
-  const timer = setInterval(() => {
-    void tick(agentId);
-  }, ms);
-  timers.set(agentId, timer);
+  const id = String(agentId);
+  const doc = readAgentDoc(id);
+  if (!doc || !doc.enabled) return;
+
+  const delayMs =
+    typeof opts.delayMs === 'number' && opts.delayMs >= 0
+      ? Math.floor(opts.delayMs)
+      : msUntilNextRun(doc);
+
+  const timer = setTimeout(() => {
+    timers.delete(id);
+    void tick(id);
+  }, delayMs);
+  timers.set(id, timer);
+}
+
+function releaseBusyAndReschedule(agentId, delayMs) {
+  const id = String(agentId);
+  busy.delete(id);
+  activeCatByAgent.delete(id);
+  const doc = readAgentDoc(id);
+  if (doc && doc.enabled) scheduleAgentTimer(id, { delayMs });
 }
 
 async function tick(agentId) {
   const id = String(agentId);
   const doc = readAgentDoc(id);
   if (!doc || !doc.enabled) return;
-  if (busy.has(id)) return;
+  if (busy.has(id)) {
+    scheduleAgentTimer(id, { delayMs: BUSY_RETRY_MS });
+    return;
+  }
 
   const {
     startAgentForCat,
@@ -365,12 +424,17 @@ async function tick(agentId) {
         runtime: 'local',
         catAgent: { id, name: doc.name, intervalMs: doc.intervalMs, dataDir },
       },
-      { getMainWindow, log }
+      {
+        getMainWindow,
+        log,
+        onRunSkipped: () => releaseBusyAndReschedule(id, BUSY_RETRY_MS),
+      }
     );
   } catch (e) {
     busy.delete(id);
     activeCatByAgent.delete(id);
     log.warn('[cat-agents] tick failed', e);
+    scheduleAgentTimer(id, { delayMs: BUSY_RETRY_MS });
   }
 }
 
@@ -378,18 +442,36 @@ function reload(agentId) {
   if (agentId) {
     const doc = readAgentDoc(agentId);
     clearTimer(agentId);
-    if (doc && doc.enabled) scheduleAgentTimer(agentId, doc.intervalMs);
+    if (doc && doc.enabled) scheduleAgentTimer(agentId);
     return;
   }
   stop();
   for (const id of listAgentIds()) {
     const doc = readAgentDoc(id);
-    if (doc && doc.enabled) scheduleAgentTimer(id, doc.intervalMs);
+    if (doc && doc.enabled) scheduleAgentTimer(id);
+  }
+}
+
+/** Run or reschedule agents that are past due (e.g. after sleep or a missed timer). */
+function catchUpOverdue() {
+  for (const id of listAgentIds()) {
+    const doc = readAgentDoc(id);
+    if (!doc || !doc.enabled) continue;
+    if (busy.has(id)) {
+      scheduleAgentTimer(id, { delayMs: BUSY_RETRY_MS });
+      continue;
+    }
+    if (msUntilNextRun(doc) === 0) {
+      void tick(id);
+    } else if (!timers.has(id)) {
+      scheduleAgentTimer(id);
+    }
   }
 }
 
 function start() {
   reload();
+  catchUpOverdue();
 }
 
 function stop() {
@@ -404,10 +486,13 @@ function runNow(agentId) {
 
 function markAgentRunFinished(agentId, catId) {
   const id = String(agentId);
-  if (activeCatByAgent.get(id) === String(catId)) {
-    busy.delete(id);
+  busy.delete(id);
+  const activeCat = activeCatByAgent.get(id);
+  if (activeCat == null || activeCat === String(catId)) {
     activeCatByAgent.delete(id);
   }
+  const doc = readAgentDoc(id);
+  if (doc && doc.enabled) scheduleAgentTimer(id);
 }
 
 function isAgentBusy(agentId) {
@@ -417,6 +502,8 @@ function isAgentBusy(agentId) {
 module.exports = {
   MIN_INTERVAL_MS,
   DEFAULT_INTERVAL_MS,
+  HEARTBEAT_INTERVAL_MINUTES,
+  normalizeIntervalMs,
   agentsRootDir,
   agentDir,
   listCatAgents,
@@ -435,4 +522,6 @@ module.exports = {
   runNow,
   markAgentRunFinished,
   isAgentBusy,
+  catchUpOverdue,
+  msUntilNextRun,
 };

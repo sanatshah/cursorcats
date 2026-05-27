@@ -67,6 +67,7 @@ const {
   screen,
   dialog,
   shell,
+  powerMonitor,
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -335,6 +336,10 @@ function activateCursorApp() {
   }
 }
 
+function overlayCatsVisible() {
+  return !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
+}
+
 function openNewCatModal() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -350,12 +355,14 @@ function openNewCatModal() {
     return;
   }
 
-  if (process.platform === 'darwin' && mainWindow && !mainWindow.isDestroyed()) {
+  const catsVisible = overlayCatsVisible();
+
+  if (process.platform === 'darwin' && catsVisible && mainWindow && !mainWindow.isDestroyed()) {
     mainWindowWasVisibleOnAllWorkspaces = true;
     mainWindow.setVisibleOnAllWorkspaces(false);
   }
 
-  modalWindow = new BrowserWindow({
+  const modalOptions = {
     width: 680,
     height: 548,
     useContentSize: true,
@@ -366,7 +373,6 @@ function openNewCatModal() {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    parent: mainWindow,
     modal: false,
     alwaysOnTop: true,
     skipTaskbar: true,
@@ -376,7 +382,10 @@ function openNewCatModal() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  });
+  };
+  // Child of a hidden overlay never surfaces on macOS; omit parent when cats are hidden.
+  if (catsVisible) modalOptions.parent = mainWindow;
+  modalWindow = new BrowserWindow(modalOptions);
 
   modalWindow.once('ready-to-show', () => {
     modalWindow.show();
@@ -490,6 +499,11 @@ function setCatsVisible(visible) {
   rebuildAppMenus();
 }
 
+function toggleCatsVisible() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  setCatsVisible(!mainWindow.isVisible());
+}
+
 function buildAppMenu() {
   const catsVisible = !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
   const activeN = Number.isFinite(catCounts.active) ? catCounts.active : 0;
@@ -523,6 +537,7 @@ function buildAppMenu() {
       label: 'Show Cats',
       type: 'checkbox',
       checked: catsVisible,
+      accelerator: process.platform === 'darwin' ? 'Command+Shift+C+H' : 'Control+Shift+C+H',
       click: (menuItem) => {
         setCatsVisible(menuItem.checked);
       },
@@ -1063,7 +1078,9 @@ ipcMain.on('new-cat-submit', (_event, payload) => {
   if (payload && payload.createCatAgent) {
     const purpose = String(payload.prompt || '').trim();
     if (!purpose) return;
-    const intervalMs = catAgents.DEFAULT_INTERVAL_MS;
+    const intervalMs = catAgents.normalizeIntervalMs(
+      typeof payload.intervalMs === 'number' ? payload.intervalMs : catAgents.DEFAULT_INTERVAL_MS
+    );
     const modelId = MODEL_SELECTION_UI_ENABLED
       ? (() => {
           const modelRaw = payload && payload.model;
@@ -1381,6 +1398,10 @@ app.whenReady().then(() => {
   });
   catAgents.start();
 
+  powerMonitor.on('resume', () => {
+    catAgents.catchUpOverdue();
+  });
+
   setOnAgentFinished(async (payload) => {
     const catAgentId = payload && payload.catAgentId ? String(payload.catAgentId) : '';
     if (!catAgentId) return;
@@ -1484,6 +1505,12 @@ app.whenReady().then(() => {
     process.platform === 'darwin' ? 'Command+Shift+C' : 'Control+Shift+C';
   globalShortcut.register(newCatAccelerator, () => {
     openNewCatModal();
+  });
+
+  const toggleCatsAccelerator =
+    process.platform === 'darwin' ? 'Command+Shift+C+H' : 'Control+Shift+C+H';
+  globalShortcut.register(toggleCatsAccelerator, () => {
+    toggleCatsVisible();
   });
 });
 
