@@ -9,6 +9,9 @@ const promptSentEl = document.getElementById('prompt-sent');
 const metaEl = document.getElementById('meta');
 const closeBtn = document.getElementById('btn-close');
 const dismissBtn = document.getElementById('btn-dismiss');
+const headerMoreWrap = document.getElementById('header-more-wrap');
+const headerMoreBtn = document.getElementById('btn-header-more');
+const headerMoreMenu = document.getElementById('header-more-menu');
 const revertBtn = document.getElementById('btn-revert');
 const commitPushWrap = document.getElementById('commit-push-wrap');
 const commitPushBtn = document.getElementById('btn-commit-push');
@@ -42,6 +45,30 @@ let revertInFlight = false;
 let commitPushInFlight = false;
 /** @type {string | null} */
 let commitPushError = null;
+
+function closeHeaderMoreMenu() {
+  if (!headerMoreMenu || !headerMoreBtn) return;
+  headerMoreMenu.hidden = true;
+  headerMoreBtn.setAttribute('aria-expanded', 'false');
+}
+
+function openHeaderMoreMenu() {
+  if (!headerMoreMenu || !headerMoreBtn) return;
+  headerMoreMenu.hidden = false;
+  headerMoreBtn.setAttribute('aria-expanded', 'true');
+}
+
+function toggleHeaderMoreMenu() {
+  if (!headerMoreMenu || headerMoreMenu.hidden) openHeaderMoreMenu();
+  else closeHeaderMoreMenu();
+}
+
+function updateHeaderMoreMenuVisibility() {
+  if (!headerMoreWrap || !revertBtn || !btnViewConversation) return;
+  const anyVisible = !revertBtn.hidden || !btnViewConversation.hidden;
+  headerMoreWrap.hidden = !anyVisible;
+  if (!anyVisible) closeHeaderMoreMenu();
+}
 
 function escapeText(s) {
   const t = String(s);
@@ -128,6 +155,7 @@ function updateRevertFromData(data) {
     revertBtn.disabled = running;
     revertBtn.textContent = 'Revert changes';
   }
+  updateHeaderMoreMenuVisibility();
 }
 
 /**
@@ -245,6 +273,7 @@ function updateAnswerPagePanel(data) {
     conversationSection.hidden = false;
     lastBoundAnswerUrl = null;
     clearAnswerPreview();
+    updateHeaderMoreMenuVisibility();
     return;
   }
 
@@ -259,6 +288,7 @@ function updateAnswerPagePanel(data) {
     conversationSection.hidden = false;
     lastBoundAnswerUrl = null;
     clearAnswerPreview();
+    updateHeaderMoreMenuVisibility();
     return;
   }
 
@@ -273,6 +303,7 @@ function updateAnswerPagePanel(data) {
   answerToggleBar.hidden = answerViewMode === 'answer';
   btnViewConversation.hidden = answerViewMode !== 'answer';
   btnViewAnswer.hidden = answerViewMode !== 'conversation';
+  updateHeaderMoreMenuVisibility();
 
   const answerWorkingPane = document.getElementById('answer-working-pane');
   if (answerPageUrl) {
@@ -391,12 +422,27 @@ if (dismissBtn) {
   });
 }
 
+if (headerMoreBtn) {
+  headerMoreBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleHeaderMoreMenu();
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (!headerMoreMenu || headerMoreMenu.hidden) return;
+  const target = e.target;
+  if (target && typeof target.closest === 'function' && target.closest('#header-more-wrap')) return;
+  closeHeaderMoreMenu();
+});
+
 if (revertBtn) {
   revertBtn.addEventListener('click', async () => {
     if (!catId || typeof window.cursorcats?.revertCat !== 'function') return;
     if (revertInFlight) return;
     if (lastData && String(lastData.runStatus || '').toLowerCase() === 'running') return;
     if (lastData && lastData.reverted) return;
+    closeHeaderMoreMenu();
     revertInFlight = true;
     updateRevertFromData(lastData);
     try {
@@ -452,6 +498,7 @@ function applyAnswerViewFromState() {
 
 if (btnViewConversation) {
   btnViewConversation.addEventListener('click', () => {
+    closeHeaderMoreMenu();
     answerViewMode = 'conversation';
     applyAnswerViewFromState();
   });
@@ -486,6 +533,11 @@ if (followupInput) {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    if (headerMoreMenu && !headerMoreMenu.hidden) {
+      e.preventDefault();
+      closeHeaderMoreMenu();
+      return;
+    }
     e.preventDefault();
     close();
   }

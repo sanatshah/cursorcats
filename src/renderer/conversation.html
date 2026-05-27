@@ -13,9 +13,14 @@
   <body>
     <div class="wrap">
       <div class="header">
-        <button type="button" id="btn-close" class="close-btn" aria-label="Close">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
+        <div class="header-close-cluster">
+          <button type="button" id="btn-dismiss" class="header-btn dismiss-btn">
+            Close Cat
+          </button>
+          <button type="button" id="btn-close" class="close-btn" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
         <div class="header-body">
           <div class="header-prompt-row">
             <p class="header-prompt" id="prompt-sent" hidden></p>
@@ -23,17 +28,43 @@
           </div>
           <div class="header-actions-row">
             <div class="header-actions-left">
-              <button type="button" id="btn-revert" class="header-btn revert-btn" hidden>
-                Revert changes
-              </button>
-              <button
-                type="button"
-                id="btn-view-conversation"
-                class="header-btn view-conversation-btn"
-                hidden
-              >
-                View conversation
-              </button>
+              <div id="header-more-wrap" class="header-more-wrap" hidden>
+                <button
+                  type="button"
+                  id="btn-header-more"
+                  class="header-more-btn"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  aria-controls="header-more-menu"
+                  aria-label="More actions"
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+                    <circle cx="5" cy="12" r="1.75"></circle>
+                    <circle cx="12" cy="12" r="1.75"></circle>
+                    <circle cx="19" cy="12" r="1.75"></circle>
+                  </svg>
+                </button>
+                <div id="header-more-menu" class="header-more-dropdown" role="menu" hidden>
+                  <button
+                    type="button"
+                    id="btn-revert"
+                    class="header-menu-item header-menu-item--danger"
+                    role="menuitem"
+                    hidden
+                  >
+                    Revert changes
+                  </button>
+                  <button
+                    type="button"
+                    id="btn-view-conversation"
+                    class="header-menu-item"
+                    role="menuitem"
+                    hidden
+                  >
+                    View conversation
+                  </button>
+                </div>
+              </div>
             </div>
             <div class="header-actions-right">
               <div id="commit-push-wrap" class="commit-push-wrap" hidden>
@@ -42,9 +73,6 @@
                 </button>
                 <span id="commit-push-branch" class="commit-push-branch"></span>
               </div>
-              <button type="button" id="btn-dismiss" class="header-btn dismiss-btn">
-                Close Cat
-              </button>
             </div>
           </div>
         </div>
