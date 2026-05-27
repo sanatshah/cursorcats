@@ -95,21 +95,31 @@ function kindClass(k) {
 }
 
 /**
- * @param {{ locationLabel?: string, folder?: string, prompt?: string, found?: boolean } | null} data
+ * @param {{ locationLabel?: string, folder?: string, prompt?: string, found?: boolean, catAgentId?: string | null, catAgentName?: string | null } | null} data
  */
 function updateHeaderFromData(data) {
   const location =
     data && data.found ? data.locationLabel || data.folder || '' : '';
-  const prompt = data && data.found && data.prompt ? String(data.prompt) : '';
+  const isCatAgent = !!(data && data.found && data.catAgentId);
+  const headerTitle = isCatAgent
+    ? (data.catAgentName && String(data.catAgentName).trim()) || 'Cat agent'
+    : data && data.found && data.prompt
+      ? String(data.prompt)
+      : '';
 
   if (promptSentEl) {
-    if (prompt) {
+    promptSentEl.classList.toggle('header-prompt--agent-name', isCatAgent);
+    if (headerTitle) {
       promptSentEl.hidden = false;
-      promptSentEl.textContent = prompt;
+      promptSentEl.textContent = headerTitle;
     } else {
       promptSentEl.hidden = true;
       promptSentEl.textContent = '';
     }
+  }
+
+  if (dismissBtn) {
+    dismissBtn.hidden = isCatAgent;
   }
 
   if (metaEl) {

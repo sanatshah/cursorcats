@@ -304,8 +304,19 @@ function commitAnswerHtmlPage(catId, rec, log) {
 /** @type {(info: { catId: string, streamBubble?: string | null }) => void} */
 let onConversationPushed = () => {};
 
+/** @type {(payload: { catId: string, status: string, result?: string, durationMs?: number, finishBubbleLine?: string, catAgentId?: string }) => void} */
+let onAgentFinishedHook = () => {};
+
 function setOnConversationPushed(fn) {
   onConversationPushed = typeof fn === 'function' ? fn : () => {};
+}
+
+function setOnAgentFinished(fn) {
+  onAgentFinishedHook = typeof fn === 'function' ? fn : () => {};
+}
+
+function emitAgentFinished(payload) {
+  onAgentFinishedHook(payload);
 }
 
 /** Max chars of user task embedded in the cat-bubble system prefix (keeps sends bounded). */
@@ -338,6 +349,25 @@ function buildSkillInstruction(skills) {
     'Use the following Cursor Agent Skills for this run. Read each skill\'s SKILL.md and follow its instructions before starting implementation:\n\n' +
     lines.join('\n') +
     '\n\n'
+  );
+}
+
+/**
+ * @param {{ id: string, name: string, intervalMs: number, dataDir: string }} catAgent
+ */
+function buildCatAgentPreamble(catAgent) {
+  if (!catAgent || !catAgent.id) return '';
+  const name = String(catAgent.name || 'Cat agent').trim();
+  const dataDir = String(catAgent.dataDir || '').trim();
+  const intervalMin = Math.max(1, Math.round((catAgent.intervalMs || 900000) / 60000));
+  return (
+    `You are a recurring cat agent named ${JSON.stringify(name)} running on a ${intervalMin}-minute heartbeat.\n` +
+    `Your persistent context lives at: ${dataDir}/\n` +
+    '  - state.json — small structured key/value state you maintain across heartbeats\n' +
+    '  - notes.md   — longer-form narrative log of what you have done and what is next\n' +
+    '  - heartbeats/ — past run records (read-only audit trail)\n\n' +
+    'Before working: read state.json and notes.md to recover prior context.\n' +
+    'At the end of this run: update state.json and append to notes.md so the next heartbeat picks up where you left off. Keep state.json compact.\n\n'
   );
 }
 
@@ -853,7 +883,7 @@ async function drainStream(run, catId) {
  * @param {string} catId
  * @param {{ runtime?: AgentRuntime, folder: string, prompt: string, cloudRepo?: CloudRepoConfig | null, snapshotTree?: string, headShaAtSnapshot?: string | null, snapshotCapturedAt?: number }} params
  */
-function initConversationState(catId, { runtime, folder, prompt, cloudRepo, skills, snapshotTree, headShaAtSnapshot, snapshotCapturedAt }) {
+function initConversationState(catId, { runtime, folder, prompt, cloudRepo, skills, snapshotTree, headShaAtSnapshot, snapshotCapturedAt, catAgent }) {
   const rt = normalizeRuntime(runtime);
   const repo = normalizeCloudRepoConfig(cloudRepo);
   const skillList = Array.isArray(skills)
@@ -884,8 +914,15 @@ function initConversationState(catId, { runtime, folder, prompt, cloudRepo, skil
     cloudRepoUrl: repo?.url,
     cloudStartingRef: repo?.startingRef,
     gitBranches: undefined,
+    catAgentId: catAgent && catAgent.id != null ? String(catAgent.id) : undefined,
+    catAgent: catAgent || undefined,
   });
   onConversationPushed({ catId });
+}
+
+function getConversationCatAgentId(catId) {
+  const rec = conversations.get(String(catId));
+  return rec && rec.catAgentId ? String(rec.catAgentId) : null;
 }
 
 async function getAgentConversation(catId) {
@@ -925,11 +962,20 @@ async function getAgentConversation(catId) {
           prUrl: b && b.prUrl != null ? String(b.prUrl) : undefined,
         }))
       : [],
+    catAgentId: c.catAgentId || null,
+    catAgentName:
+      c.catAgent && typeof c.catAgent.name === 'string' && c.catAgent.name.trim()
+        ? c.catAgent.name.trim()
+        : null,
   };
 }
 
 function deleteConversationState(catId) {
   conversations.delete(String(catId));
+}
+
+function hasConversation(catId) {
+  return conversations.has(String(catId));
 }
 
 /**
@@ -1062,11 +1108,15 @@ function runOnAgent(catId, notify, log, prompt) {
       let run;
       const recForSkills = conversations.get(id);
       const skillExtra = buildSkillInstruction(recForSkills && recForSkills.skills);
+      const catAgentPreamble =
+        recForSkills && recForSkills.catAgent
+          ? buildCatAgentPreamble(recForSkills.catAgent)
+          : '';
       const addedSystemInstruction = buildAddedSystemInstruction(prompt);
       const htmlExtra = buildAnswerHtmlPageInstruction();
       try {
         run = await entry.agent.send(
-          String(addedSystemInstruction + skillExtra + htmlExtra + prompt)
+          String(catAgentPreamble + addedSystemInstruction + skillExtra + htmlExtra + prompt)
         );
       } catch (e) {
         log.warn('agent.send failed', e);
@@ -1080,12 +1130,15 @@ function runOnAgent(catId, notify, log, prompt) {
           commitAnswerHtmlPage(id, r, log);
           onConversationPushed({ catId: id });
         }
-        notify({
+        const errPayload = {
           catId: id,
           status: 'error',
           result: (e && e.message) || String(e),
           finishBubbleLine: finishBubbleLineFromConversation(r),
-        });
+          catAgentId: r && r.catAgentId ? String(r.catAgentId) : undefined,
+        };
+        notify(errPayload);
+        emitAgentFinished(errPayload);
         try {
           if (entry.agent && typeof entry.agent[Symbol.asyncDispose] === 'function') {
             await entry.agent[Symbol.asyncDispose]();
@@ -1131,13 +1184,16 @@ function runOnAgent(catId, notify, log, prompt) {
         const status = result && result.status != null ? result.status : 'finished';
         const res = result && result.result != null ? String(result.result) : undefined;
         const durationMs = result && result.durationMs != null ? result.durationMs : undefined;
-        notify({
+        const finishPayload = {
           catId: id,
           status: String(status),
           result: res,
           durationMs,
           finishBubbleLine: finishBubbleLineFromConversation(r),
-        });
+          catAgentId: r && r.catAgentId ? String(r.catAgentId) : undefined,
+        };
+        notify(finishPayload);
+        emitAgentFinished(finishPayload);
       } catch (e) {
         log.warn('run.wait failed', e);
         const r = conversations.get(id);
@@ -1150,12 +1206,15 @@ function runOnAgent(catId, notify, log, prompt) {
           commitAnswerHtmlPage(id, r, log);
           onConversationPushed({ catId: id });
         }
-        notify({
+        const failPayload = {
           catId: id,
           status: 'error',
           result: (e && e.message) || String(e),
           finishBubbleLine: finishBubbleLineFromConversation(r),
-        });
+          catAgentId: r && r.catAgentId ? String(r.catAgentId) : undefined,
+        };
+        notify(failPayload);
+        emitAgentFinished(failPayload);
       } finally {
         entry.run = null;
         const r2 = conversations.get(id);
@@ -1170,7 +1229,7 @@ function runOnAgent(catId, notify, log, prompt) {
   return work;
 }
 
-async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudRepo, skills, notify, log }) {
+async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudRepo, skills, catAgent, notify, log }) {
   const id = String(catId);
   const target = normalizeAgentTarget({ runtime, folder, cloudRepo });
   const apiKey = process.env.CURSOR_API_KEY;
@@ -1196,11 +1255,20 @@ async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudR
       cloudRepoUrl: repo?.url,
       cloudStartingRef: repo?.startingRef,
       gitBranches: undefined,
+      catAgentId: catAgent && catAgent.id != null ? String(catAgent.id) : undefined,
+      catAgent: catAgent || undefined,
     });
     const recNoKey = conversations.get(id);
     if (recNoKey) commitAnswerHtmlPage(id, recNoKey, log);
     onConversationPushed({ catId: id });
-    notify({ catId: id, status: 'error', result: noKeyMsg });
+    const noKeyPayload = {
+      catId: id,
+      status: 'error',
+      result: noKeyMsg,
+      catAgentId: catAgent && catAgent.id != null ? String(catAgent.id) : undefined,
+    };
+    notify(noKeyPayload);
+    emitAgentFinished(noKeyPayload);
     return;
   }
 
@@ -1215,6 +1283,7 @@ async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudR
     snapshotTree: snap?.tree,
     headShaAtSnapshot: snap?.headSha != null ? snap.headSha : undefined,
     snapshotCapturedAt: snap?.capturedAt,
+    catAgent: catAgent || undefined,
   });
 
   try {
@@ -1230,7 +1299,13 @@ async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudR
       commitAnswerHtmlPage(id, rec, log);
       onConversationPushed({ catId: id });
     }
-    notify({ catId: id, status: 'error', result: (e && e.message) || String(e) });
+    notify({ catId: id, status: 'error', result: (e && e.message) || String(e), catAgentId: catAgent && catAgent.id != null ? String(catAgent.id) : undefined });
+    emitAgentFinished({
+      catId: id,
+      status: 'error',
+      result: (e && e.message) || String(e),
+      catAgentId: catAgent && catAgent.id != null ? String(catAgent.id) : undefined,
+    });
     return;
   }
 
@@ -1241,7 +1316,7 @@ async function runAgentLifecycle({ catId, folder, prompt, model, runtime, cloudR
  * Starts an async agent run for this cat. Does not block. Completion is
  * reported via `agent-finished` on the main window.
  */
-function startAgentForCat({ catId, folder, prompt, model, runtime, cloudRepo, skills }, { getMainWindow, log = console } = {}) {
+function startAgentForCat({ catId, folder, prompt, model, runtime, cloudRepo, skills, catAgent }, { getMainWindow, log = console } = {}) {
   const notify = getNotify(getMainWindow);
   void runAgentLifecycle({
     catId: String(catId),
@@ -1251,6 +1326,7 @@ function startAgentForCat({ catId, folder, prompt, model, runtime, cloudRepo, sk
     runtime,
     cloudRepo,
     skills,
+    catAgent,
     notify,
     log,
   });
@@ -1311,7 +1387,10 @@ module.exports = {
   startAgentForCat,
   cancelAllAgents,
   getAgentConversation,
+  getConversationCatAgentId,
+  hasConversation,
   setOnConversationPushed,
+  setOnAgentFinished,
   deleteConversationState,
   dismissAgent,
   sendFollowup,

@@ -113,6 +113,23 @@ contextBridge.exposeInMainWorld('cursorcats', {
   reportCatCounts: (counts) => {
     ipcRenderer.send('cat-counts', counts);
   },
+  listCatAgents: () => ipcRenderer.invoke('cat-agent:list'),
+  deleteCatAgent: (agentId) => ipcRenderer.invoke('cat-agent:delete', agentId),
+  setCatAgentEnabled: (agentId, enabled) =>
+    ipcRenderer.invoke('cat-agent:set-enabled', { agentId, enabled }),
+  runCatAgentNow: (agentId) => ipcRenderer.invoke('cat-agent:run-now', agentId),
+  updateCatAgent: (payload) => ipcRenderer.invoke('cat-agent:update', payload),
+  onCatAgentsChanged: (callback) => {
+    const listener = (_event, payload) => {
+      try {
+        callback(payload);
+      } catch {
+        /* ignore */
+      }
+    };
+    ipcRenderer.on('cat-agents-changed', listener);
+    return () => ipcRenderer.removeListener('cat-agents-changed', listener);
+  },
   onClearFinishedCats: (callback) => {
     const listener = () => {
       try {

@@ -78,12 +78,15 @@ const {
   startAgentForCat,
   cancelAllAgents,
   getAgentConversation,
+  hasConversation,
   setOnConversationPushed,
+  setOnAgentFinished,
   dismissAgent,
   sendFollowup,
   revertAgentChanges,
   commitAndPushAgentChanges,
 } = require('./agents');
+const catAgents = require('./cat-agents');
 const { listAvailableSkills } = require('./skills');
 const { startHookServer } = require('./hook-server');
 const {
@@ -131,6 +134,8 @@ let mainWindowWasVisibleOnAllWorkspaces = false;
 let catCounts = { active: 0, inReview: 0 };
 let overlayReady = false;
 const pendingSpawnCats = [];
+/** Debounced handler for screen display topology changes; removed on quit. */
+let onDisplayChangeHandler = null;
 
 /** Tracked for frontmost window stability (used by get-frontmost-window-info). */
 let activeWindowState = { id: null, firstSeenAt: 0, screenBounds: null };
@@ -190,6 +195,15 @@ async function tickActiveWindowTracker() {
   }
 }
 
+function notifyCatAgentsChanged() {
+  const payload = { at: Date.now() };
+  for (const win of [mainWindow, modalWindow]) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('cat-agents-changed', payload);
+    }
+  }
+}
+
 function createWindow() {
   const display = screen.getPrimaryDisplay();
   // The macOS Dock (and Windows taskbar) lives at a higher window level than
@@ -237,6 +251,39 @@ function createWindow() {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+  }
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return (...args) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn(...args);
+    }, ms);
+  };
+}
+
+/** Re-anchor the overlay to the current primary display after dock/undock or lid open/close. */
+function repositionOverlayToPrimaryDisplay() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const display = screen.getPrimaryDisplay();
+  const { x, y, width, height } = display.workArea;
+  const bounds = mainWindow.getBounds();
+  const changed =
+    bounds.x !== x ||
+    bounds.y !== y ||
+    bounds.width !== width ||
+    bounds.height !== height;
+  if (changed) {
+    mainWindow.setBounds({ x, y, width, height });
+  }
+  if (process.platform === 'darwin' && !mainWindowWasVisibleOnAllWorkspaces) {
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+  if (mainWindow.isVisible()) {
+    mainWindow.showInactive();
   }
 }
 
@@ -947,7 +994,116 @@ ipcMain.handle('set-selected-cloud-repository', (_event, repo) => {
   }
 });
 
+ipcMain.handle('cat-agent:list', () => catAgents.listCatAgents());
+
+ipcMain.handle('cat-agent:delete', (_event, agentId) => {
+  if (!agentId) return { ok: false, error: 'missing agent id' };
+  try {
+    catAgents.deleteCatAgent(String(agentId));
+    catAgents.reload(String(agentId));
+    notifyCatAgentsChanged();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+});
+
+ipcMain.handle('cat-agent:set-enabled', (_event, { agentId, enabled } = {}) => {
+  if (!agentId) return { ok: false, error: 'missing agent id' };
+  try {
+    catAgents.setCatAgentEnabled(String(agentId), !!enabled);
+    catAgents.reload(String(agentId));
+    notifyCatAgentsChanged();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+});
+
+ipcMain.handle('cat-agent:run-now', async (_event, agentId) => {
+  if (!agentId) return { ok: false, error: 'missing agent id' };
+  try {
+    await catAgents.runNow(String(agentId));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+});
+
+ipcMain.handle('cat-agent:update', (_event, payload = {}) => {
+  const agentId = payload && payload.agentId != null ? String(payload.agentId) : '';
+  if (!agentId) return { ok: false, error: 'missing agent id' };
+  try {
+    const doc = catAgents.updateCatAgent(agentId, {
+      name: payload.name,
+      purpose: payload.purpose,
+      intervalMs: payload.intervalMs,
+      workdir: payload.workdir,
+      model: payload.model,
+      enabled: payload.enabled,
+    });
+    catAgents.reload(agentId);
+    notifyCatAgentsChanged();
+    return { ok: true, agent: doc };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+});
+
 ipcMain.on('new-cat-submit', (_event, payload) => {
+  if (payload && payload.createCatAgent) {
+    const purpose = String(payload.prompt || '').trim();
+    if (!purpose) return;
+    const intervalMs = catAgents.DEFAULT_INTERVAL_MS;
+    const modelRaw = payload && payload.model;
+    const modelId =
+      typeof modelRaw === 'string' && modelRaw.trim() ? modelRaw.trim() : undefined;
+    if (modelId) {
+      try {
+        const file = getModelSelectionPath();
+        fs.writeFileSync(file, JSON.stringify({ id: modelId }, null, 2), 'utf8');
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      const editingId =
+        payload.editingAgentId != null ? String(payload.editingAgentId).trim() : '';
+      const workdir =
+        typeof payload.folder === 'string' && payload.folder.trim()
+          ? payload.folder.trim()
+          : undefined;
+      if (editingId) {
+        catAgents.updateCatAgent(editingId, {
+          name: payload.agentName,
+          purpose,
+          intervalMs,
+          workdir,
+          model: modelId,
+        });
+        catAgents.reload(editingId);
+      } else {
+        const doc = catAgents.createCatAgent({
+          name: payload.agentName,
+          purpose,
+          intervalMs,
+          workdir,
+          model: modelId,
+          enabled: true,
+        });
+        catAgents.reload(doc.id);
+        void catAgents.runNow(doc.id);
+      }
+      notifyCatAgentsChanged();
+    } catch (e) {
+      console.warn('[cursorcats] create/update cat agent failed', e);
+    }
+    if (modalWindow && !modalWindow.isDestroyed()) {
+      modalWindow.close();
+    }
+    return;
+  }
+
   const catId = randomUUID();
   const modelRaw = payload && payload.model;
   const modelId =
@@ -1178,6 +1334,11 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
 
+  onDisplayChangeHandler = debounce(repositionOverlayToPrimaryDisplay, 150);
+  screen.on('display-added', onDisplayChangeHandler);
+  screen.on('display-removed', onDisplayChangeHandler);
+  screen.on('display-metrics-changed', onDisplayChangeHandler);
+
   void startHookServer({
     onIdeSessionStart: (p) => handleIdeSessionStart(p, { getMainWindow: () => mainWindow, log: console }),
     onIdeSessionEnd: (p) => handleIdeSessionEnd(p, { getMainWindow: () => mainWindow, log: console }),
@@ -1190,6 +1351,46 @@ app.whenReady().then(() => {
       // eslint-disable-next-line no-console
       console.warn('[cursorcats] hook server failed to start', e);
     });
+
+  catAgents.setCatAgentRuntimeHooks({
+    startAgentForCat,
+    sendSpawnCatToOverlay,
+    reactivateCatOnOverlay: (catId) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send('agent-restarted', { catId: String(catId) });
+    },
+    hasConversation,
+    getMainWindow: () => mainWindow,
+    onAgentsChanged: notifyCatAgentsChanged,
+    log: console,
+  });
+  catAgents.start();
+
+  setOnAgentFinished(async (payload) => {
+    const catAgentId = payload && payload.catAgentId ? String(payload.catAgentId) : '';
+    if (!catAgentId) return;
+    const catId = payload && payload.catId ? String(payload.catId) : '';
+    try {
+      if (catId) {
+        catAgents.writeHeartbeatRecord(catAgentId, {
+          runId: catId,
+          status: payload.status,
+          finishBubbleLine: payload.finishBubbleLine,
+          durationMs: payload.durationMs,
+        });
+      }
+      catAgents.patchAgentRunMeta(catAgentId, {
+        lastRunAt: Date.now(),
+        lastRunStatus: payload.status,
+        lastCatId: catId || undefined,
+      });
+    } catch (e) {
+      console.warn('[cursorcats] cat agent heartbeat record failed', e);
+    } finally {
+      catAgents.markAgentRunFinished(catAgentId, catId);
+      notifyCatAgentsChanged();
+    }
+  });
 
   /** Throttle overlay speech bubbles so streaming tokens do not flood IPC. */
   const streamBubbleThrottle = new Map();
@@ -1272,6 +1473,12 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  if (onDisplayChangeHandler) {
+    screen.removeListener('display-added', onDisplayChangeHandler);
+    screen.removeListener('display-removed', onDisplayChangeHandler);
+    screen.removeListener('display-metrics-changed', onDisplayChangeHandler);
+    onDisplayChangeHandler = null;
+  }
   if (typeof closeHookServer === 'function') {
     try {
       closeHookServer();
@@ -1281,6 +1488,7 @@ app.on('will-quit', () => {
     }
     closeHookServer = null;
   }
+  catAgents.stop();
   cancelAllAgents();
   globalShortcut.unregisterAll();
 });

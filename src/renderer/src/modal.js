@@ -10,21 +10,10 @@ if (headerAppIcon) {
 }
 const errorEl = document.getElementById('error');
 const hintEl = document.getElementById('spawn-hint');
-const promptSendHintEl = document.getElementById('prompt-send-hint');
 
 const isApple =
   /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
   (navigator.userAgentData?.platform || '').toLowerCase().includes('mac');
-
-if (promptSendHintEl) {
-  if (isApple) {
-    promptSendHintEl.innerHTML =
-      '<kbd>Enter</kbd> send · <kbd>⌘</kbd>+<kbd>Enter</kbd> new line';
-  } else {
-    promptSendHintEl.innerHTML =
-      '<kbd>Enter</kbd> send · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> new line';
-  }
-}
 
 if (hintEl) {
   if (isApple) {
@@ -43,9 +32,15 @@ const skillMenu = document.getElementById('skill-menu');
 const btnCreateCat = document.getElementById('btn-create-cat');
 const runtimeLocalBtn = document.getElementById('runtime-local');
 const runtimeCloudBtn = document.getElementById('runtime-cloud');
+const runtimeAgentsBtn = document.getElementById('runtime-agents');
+const createCatAgentToggle = document.getElementById('create-cat-agent-toggle');
+const catAgentNameRow = document.getElementById('cat-agent-name-row');
+const catAgentNameInput = document.getElementById('cat-agent-name');
 const projectSectionTitle = document.getElementById('project-section-title');
 const localProjectSection = document.getElementById('local-project-section');
 const cloudProjectSection = document.getElementById('cloud-project-section');
+const agentsListSection = document.getElementById('agents-list-section');
+const catAgentsList = document.getElementById('cat-agents-list');
 const cloudReposList = document.getElementById('cloud-repos-list');
 const cloudStartingRefInput = document.getElementById('cloud-starting-ref');
 const cloudRepoSearchInput = document.getElementById('cloud-repo-search');
@@ -70,8 +65,13 @@ let selectedModelId = DEFAULT_MODEL_ID;
 let modelMenuOpen = false;
 
 let selectedFolder = '';
-/** @type {'local' | 'cloud'} */
+/** @type {'local' | 'cloud' | 'agents'} */
 let selectedRuntime = 'local';
+let createCatAgentMode = false;
+/** @type {string | null} */
+let editingAgentId = null;
+/** @type {Array<{ id: string, name: string, purpose: string, intervalMs: number, enabled: boolean, lastRunAt?: number, lastRunStatus?: string, workdir?: string }>} */
+let catAgentsData = [];
 /** @type {Array<{ url: string }>} */
 let cloudReposListData = [];
 let selectedCloudRepoUrl = '';
@@ -88,7 +88,7 @@ let skillsCacheKey = '';
 let skillsLoadingPromise = null;
 
 function skillsFolderForListing() {
-  return normalizeRuntime(selectedRuntime) === 'local' ? selectedFolder : '';
+  return selectedRuntime === 'local' ? selectedFolder : '';
 }
 
 function invalidateSkillsCache() {
@@ -572,31 +572,235 @@ function ensureCloudRepositoriesLoaded() {
 }
 
 function normalizeRuntime(value) {
-  return String(value || '').trim().toLowerCase() === 'cloud' ? 'cloud' : 'local';
+  const v = String(value || '').trim().toLowerCase();
+  if (v === 'cloud') return 'cloud';
+  if (v === 'agents' || v === 'local agents' || v === 'local-agents' || v === 'cats') return 'agents';
+  return 'local';
+}
+
+function runtimeForOneShot() {
+  return selectedRuntime === 'cloud' ? 'cloud' : 'local';
+}
+
+function formatRelativeTime(ts) {
+  if (!ts || !Number.isFinite(ts)) return 'never';
+  const delta = Math.max(0, Date.now() - ts);
+  const mins = Math.floor(delta / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function truncateText(text, max = 120) {
+  const t = String(text || '').trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+function syncPrimaryAction() {
+  if (!btnCreateCat) return;
+  if (selectedRuntime === 'agents') {
+    btnCreateCat.hidden = true;
+    return;
+  }
+  btnCreateCat.hidden = false;
+  if (selectedRuntime === 'local' && createCatAgentMode) {
+    btnCreateCat.textContent = editingAgentId ? 'Save agent' : 'Create agent';
+  } else {
+    btnCreateCat.textContent = 'Spawn';
+  }
+}
+
+function syncCatAgentControls() {
+  const showAgentControls = selectedRuntime === 'local';
+  const showNameField = showAgentControls && createCatAgentMode;
+  if (createCatAgentToggle) {
+    createCatAgentToggle.hidden = !showAgentControls;
+    createCatAgentToggle.setAttribute('aria-pressed', createCatAgentMode ? 'true' : 'false');
+    createCatAgentToggle.classList.toggle('selected', createCatAgentMode);
+  }
+  if (catAgentNameRow) catAgentNameRow.hidden = !showNameField;
+  if (promptEl) {
+    promptEl.placeholder = showNameField
+      ? 'What should this agent do on each heartbeat?'
+      : 'Meow, what should I work on?';
+  }
+  syncPrimaryAction();
 }
 
 function syncRuntimeDisplay() {
   selectedRuntime = normalizeRuntime(selectedRuntime);
   const cloud = selectedRuntime === 'cloud';
+  const agents = selectedRuntime === 'agents';
   if (runtimeLocalBtn) {
-    runtimeLocalBtn.classList.toggle('selected', !cloud);
-    runtimeLocalBtn.setAttribute('aria-checked', cloud ? 'false' : 'true');
+    runtimeLocalBtn.classList.toggle('selected', !cloud && !agents);
+    runtimeLocalBtn.setAttribute('aria-checked', !cloud && !agents ? 'true' : 'false');
   }
   if (runtimeCloudBtn) {
     runtimeCloudBtn.classList.toggle('selected', cloud);
     runtimeCloudBtn.setAttribute('aria-checked', cloud ? 'true' : 'false');
   }
-  if (localProjectSection) localProjectSection.hidden = cloud;
+  if (runtimeAgentsBtn) {
+    runtimeAgentsBtn.classList.toggle('selected', agents);
+    runtimeAgentsBtn.setAttribute('aria-checked', agents ? 'true' : 'false');
+  }
+  if (localProjectSection) localProjectSection.hidden = cloud || agents;
   if (cloudProjectSection) cloudProjectSection.hidden = !cloud;
-  if (projectSectionTitle) projectSectionTitle.textContent = cloud ? 'Cloud Repositories' : 'Projects';
+  if (agentsListSection) agentsListSection.hidden = !agents;
+  if (projectSectionTitle) {
+    projectSectionTitle.textContent = agents
+      ? 'Cats'
+      : cloud
+        ? 'Cloud Repositories'
+        : 'Projects';
+  }
   if (hintEl) {
-    if (cloud) {
+    if (agents) {
+      hintEl.innerHTML = '<kbd>Esc</kbd> cancel';
+    } else if (cloud) {
       hintEl.innerHTML = '<kbd>Esc</kbd> cancel';
     } else if (isApple) {
       hintEl.innerHTML = '<kbd>⌘</kbd>+<kbd>O</kbd> folder · <kbd>Esc</kbd> cancel';
     } else {
       hintEl.innerHTML = '<kbd>Ctrl</kbd>+<kbd>O</kbd> folder · <kbd>Esc</kbd> cancel';
     }
+  }
+  syncCatAgentControls();
+  syncPromptHeight();
+}
+
+async function loadCatAgents() {
+  if (!window.cursorcats?.listCatAgents || !catAgentsList) return;
+  try {
+    const list = await window.cursorcats.listCatAgents();
+    catAgentsData = Array.isArray(list) ? list : [];
+  } catch {
+    catAgentsData = [];
+  }
+  renderCatAgentsList();
+}
+
+function renderCatAgentsList() {
+  if (!catAgentsList) return;
+  catAgentsList.innerHTML = '';
+  if (!catAgentsData.length) {
+    const empty = document.createElement('div');
+    empty.className = 'cat-agents-empty';
+    empty.textContent =
+      'No local cat agents yet. Switch to Local, toggle Create cat agent, name it, and save a purpose.';
+    catAgentsList.appendChild(empty);
+    syncPromptHeight();
+    return;
+  }
+
+  for (const agent of catAgentsData) {
+    const item = document.createElement('div');
+    item.className = 'cat-agent-item';
+    item.dataset.agentId = agent.id;
+
+    const head = document.createElement('div');
+    head.className = 'cat-agent-item-head';
+
+    const textCol = document.createElement('div');
+    const title = document.createElement('div');
+    title.className = 'cat-agent-item-title';
+    title.textContent = agent.name || 'Cat agent';
+    const purpose = document.createElement('div');
+    purpose.className = 'cat-agent-item-purpose';
+    purpose.textContent = truncateText(agent.purpose, 160);
+    textCol.appendChild(title);
+    textCol.appendChild(purpose);
+
+    const enabledLabel = document.createElement('label');
+    enabledLabel.className = 'cat-agent-enabled';
+    const enabledInput = document.createElement('input');
+    enabledInput.type = 'checkbox';
+    enabledInput.checked = agent.enabled !== false;
+    enabledInput.addEventListener('change', async () => {
+      if (!window.cursorcats?.setCatAgentEnabled) return;
+      await window.cursorcats.setCatAgentEnabled(agent.id, enabledInput.checked);
+      await loadCatAgents();
+    });
+    enabledLabel.appendChild(enabledInput);
+    enabledLabel.appendChild(document.createTextNode('Enabled'));
+
+    head.appendChild(textCol);
+    head.appendChild(enabledLabel);
+
+    const meta = document.createElement('div');
+    meta.className = 'cat-agent-item-meta';
+    const intervalMin = Math.max(1, Math.round((agent.intervalMs || 900000) / 60000));
+    meta.appendChild(document.createTextNode(`Every ${intervalMin} min`));
+    const badge = document.createElement('span');
+    const status = String(agent.lastRunStatus || '').toLowerCase();
+    badge.className = `cat-agent-badge${status === 'error' ? ' error' : status ? ' ok' : ''}`;
+    badge.textContent = agent.lastRunAt
+      ? `ran ${formatRelativeTime(agent.lastRunAt)}${status ? ` — ${status}` : ''}`
+      : 'never ran';
+    meta.appendChild(badge);
+
+    const actions = document.createElement('div');
+    actions.className = 'cat-agent-item-actions';
+
+    const runBtn = document.createElement('button');
+    runBtn.type = 'button';
+    runBtn.className = 'cat-agent-action';
+    runBtn.textContent = 'Run now';
+    runBtn.addEventListener('click', async () => {
+      if (!window.cursorcats?.runCatAgentNow) return;
+      setError('');
+      const result = await window.cursorcats.runCatAgentNow(agent.id);
+      if (result && result.ok === false && result.error) {
+        setError(result.error);
+      }
+      await loadCatAgents();
+    });
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'cat-agent-action';
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => {
+      editingAgentId = agent.id;
+      createCatAgentMode = true;
+      if (catAgentNameInput) catAgentNameInput.value = agent.name || '';
+      if (promptEl) promptEl.value = agent.purpose || '';
+      if (agent.workdir) {
+        selectedFolder = agent.workdir;
+        addFolderToList(agent.workdir, true, false);
+        syncFolderDisplay();
+      }
+      void selectRuntime('local');
+      syncPromptHeight();
+      promptEl?.focus();
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'cat-agent-action danger';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', async () => {
+      if (!window.cursorcats?.deleteCatAgent) return;
+      const result = await window.cursorcats.deleteCatAgent(agent.id);
+      if (result && result.ok === false && result.error) {
+        setError(result.error);
+        return;
+      }
+      if (editingAgentId === agent.id) editingAgentId = null;
+      await loadCatAgents();
+    });
+
+    actions.appendChild(runBtn);
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+
+    item.appendChild(head);
+    item.appendChild(meta);
+    item.appendChild(actions);
+    catAgentsList.appendChild(item);
   }
   syncPromptHeight();
 }
@@ -607,10 +811,18 @@ async function selectRuntime(runtime) {
   invalidateSkillsCache();
   if (selectedRuntime === 'cloud') {
     void ensureCloudRepositoriesLoaded();
+  } else if (selectedRuntime === 'agents') {
+    await loadCatAgents();
   }
-  if (window.cursorcats?.setSelectedRuntime) {
+  if (selectedRuntime !== 'local') {
+    createCatAgentMode = false;
+    editingAgentId = null;
+    if (catAgentNameInput) catAgentNameInput.value = '';
+    syncCatAgentControls();
+  }
+  if (window.cursorcats?.setSelectedRuntime && selectedRuntime !== 'agents') {
     try {
-      await window.cursorcats.setSelectedRuntime(selectedRuntime);
+      await window.cursorcats.setSelectedRuntime(runtimeForOneShot());
     } catch {
       /* ignore */
     }
@@ -666,10 +878,38 @@ async function ensureApiKeySaved() {
 async function submit() {
   setError('');
   closeSkillMenu();
+  if (selectedRuntime === 'agents') return;
   if (!(await ensureApiKeySaved())) return;
   const prompt = (promptEl.value || '').trim();
-  const runtime = normalizeRuntime(selectedRuntime);
+  const runtime = runtimeForOneShot();
   if (runtime === 'local') {
+    if (createCatAgentMode) {
+      const agentName = catAgentNameInput ? catAgentNameInput.value.trim() : '';
+      if (!agentName) {
+        setError('Enter a name for the cat agent.');
+        catAgentNameInput?.focus();
+        return;
+      }
+      if (!prompt) {
+        setError('Enter a purpose for the cat agent.');
+        return;
+      }
+      if (window.cursorcats?.submitNewCat) {
+        window.cursorcats.submitNewCat({
+          folder: selectedFolder.trim() || '',
+          prompt,
+          model: selectedModelId,
+          runtime: 'local',
+          skills: [],
+          createCatAgent: true,
+          editingAgentId,
+          agentName,
+        });
+      } else {
+        setError('Could not reach the app. Try reopening CursorCats.');
+      }
+      return;
+    }
     if (!selectedFolder.trim()) {
       setError('Choose a folder.');
       return;
@@ -863,6 +1103,38 @@ if (runtimeCloudBtn) {
   });
 }
 
+if (runtimeAgentsBtn) {
+  runtimeAgentsBtn.addEventListener('click', () => {
+    void selectRuntime('agents');
+  });
+}
+
+if (createCatAgentToggle) {
+  createCatAgentToggle.addEventListener('click', () => {
+    if (selectedRuntime !== 'local') return;
+    createCatAgentMode = !createCatAgentMode;
+    if (!createCatAgentMode) {
+      editingAgentId = null;
+      if (catAgentNameInput) catAgentNameInput.value = '';
+    }
+    syncCatAgentControls();
+    syncPromptHeight();
+    (createCatAgentMode && catAgentNameInput ? catAgentNameInput : promptEl)?.focus();
+  });
+}
+
+if (catAgentNameInput) {
+  catAgentNameInput.addEventListener('input', () => {
+    syncPromptHeight();
+  });
+  catAgentNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      promptEl?.focus();
+    }
+  });
+}
+
 if (cloudStartingRefInput) {
   cloudStartingRefInput.addEventListener('input', () => {
     syncPromptHeight();
@@ -1051,6 +1323,14 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+if (window.cursorcats?.onCatAgentsChanged) {
+  window.cursorcats.onCatAgentsChanged(() => {
+    if (selectedRuntime === 'agents') {
+      void loadCatAgents();
+    }
+  });
+}
+
 const wrap = document.querySelector('.wrap');
 const header = document.querySelector('.header');
 const sectionTitle = document.querySelector('.section-title');
@@ -1076,6 +1356,17 @@ window.addEventListener('load', () => {
 void (async () => {
   syncRuntimeDisplay();
   await Promise.all([loadRecentFolders(), initModels(), ensureSkillsLoaded(), initApiKeySection()]);
+  if (window.cursorcats?.getSelectedRuntime) {
+    try {
+      const saved = await window.cursorcats.getSelectedRuntime();
+      if (saved && saved.runtime) {
+        selectedRuntime = normalizeRuntime(saved.runtime);
+        syncRuntimeDisplay();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   if (needsApiKey && apiKeyInput) {
     apiKeyInput.focus();
   } else {

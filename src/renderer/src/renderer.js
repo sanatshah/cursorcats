@@ -1406,6 +1406,8 @@
     const folder = meta && typeof meta.folder === 'string' ? meta.folder : '';
     const prompt = meta && typeof meta.prompt === 'string' ? meta.prompt : '';
     const catId = meta && meta.catId != null ? String(meta.catId) : null;
+    const catAgentId =
+      meta && meta.catAgentId != null ? String(meta.catAgentId).trim() || null : null;
     const fw = (manifest && manifest.frameWidth) || 32;
     const fh = (manifest && manifest.frameHeight) || 32;
     const hb =
@@ -1419,6 +1421,7 @@
       folder,
       prompt,
       catId,
+      catAgentId,
       /** 'sdk' | 'ide' */
       kind: (meta && meta.kind) || 'sdk',
       finished: false,
@@ -1743,6 +1746,22 @@
   }
 
   function applyAgentFinishToCat(cat, ev) {
+    if (cat.catAgentId) {
+      const status = ev && ev.status != null ? String(ev.status) : 'unknown';
+      const endText =
+        ev && ev.result != null && String(ev.result).length > 0
+          ? String(ev.result)
+          : ev && ev.endResult != null
+            ? String(ev.endResult)
+            : '';
+      cat.endStatus = status;
+      cat.endResult = endText;
+      destroyStreamBubble(cat);
+      destroyFinishBubble(cat);
+      detachPartnerIfInteracting(cat);
+      if (cat.catId != null) reactivateCat(cat.catId);
+      return;
+    }
     const status = ev && ev.status != null ? String(ev.status) : 'unknown';
     const endText =
       ev && ev.result != null && String(ev.result).length > 0
