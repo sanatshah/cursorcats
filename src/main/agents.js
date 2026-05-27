@@ -994,7 +994,8 @@ async function dismissAgent(catId, opts = {}) {
   }
 }
 
-const DEFAULT_AGENT_MODEL_ID = 'composer-2';
+/** Fixed default while model picker UI is deprecated (see modal.js). */
+const DEFAULT_AGENT_MODEL_ID = 'composer-2.5';
 
 /**
  * Lower-noise env merged into local agent runs (child inherits `process.env` with these overrides).

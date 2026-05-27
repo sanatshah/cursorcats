@@ -25,9 +25,11 @@ if (hintEl) {
 const btnChoose = document.getElementById('btn-choose-folder');
 const recentFoldersContainer = document.getElementById('recent-folders-container');
 const recentFoldersList = document.getElementById('recent-folders-list');
-const modelPicker = document.getElementById('model-picker');
-const modelChipLabel = document.getElementById('model-chip-label');
-const modelMenu = document.getElementById('model-menu');
+/** @deprecated Set true to restore model picker chip + menu in modal.html */
+const MODEL_SELECTION_UI_ENABLED = false;
+const modelPicker = MODEL_SELECTION_UI_ENABLED ? document.getElementById('model-picker') : null;
+const modelChipLabel = MODEL_SELECTION_UI_ENABLED ? document.getElementById('model-chip-label') : null;
+const modelMenu = MODEL_SELECTION_UI_ENABLED ? document.getElementById('model-menu') : null;
 const skillMenu = document.getElementById('skill-menu');
 const btnCreateCat = document.getElementById('btn-create-cat');
 const runtimeLocalBtn = document.getElementById('runtime-local');
@@ -50,7 +52,7 @@ const apiKeyInput = document.getElementById('api-key-input');
 
 let needsApiKey = false;
 
-const DEFAULT_MODEL_ID = 'composer-2';
+const DEFAULT_MODEL_ID = 'composer-2.5';
 
 /**
  * @typedef {{ id: string, value: string }} ModelParameterValue
@@ -1042,10 +1044,14 @@ async function selectModel(id) {
 
 /** @returns {SdkModelListItem} */
 function fallbackModelListItem() {
-  return { id: DEFAULT_MODEL_ID, displayName: 'Composer 2', description: '' };
+  return { id: DEFAULT_MODEL_ID, displayName: 'Composer 2.5', description: '' };
 }
 
 async function initModels() {
+  selectedModelId = DEFAULT_MODEL_ID;
+  if (!MODEL_SELECTION_UI_ENABLED) {
+    return;
+  }
   if (!window.cursorcats?.listModels) {
     modelsList = [fallbackModelListItem()];
     selectedModelId = DEFAULT_MODEL_ID;
@@ -1080,7 +1086,7 @@ async function initModels() {
   syncPromptHeight();
 }
 
-if (modelPicker) {
+if (MODEL_SELECTION_UI_ENABLED && modelPicker) {
   modelPicker.addEventListener('click', (e) => {
     e.stopPropagation();
     if (modelMenuOpen) {
@@ -1213,10 +1219,11 @@ document.addEventListener(
     if (skillMenuOpen && skillMenu && promptEl && !promptEl.contains(t) && !skillMenu.contains(t)) {
       closeSkillMenu();
     }
-    if (!modelMenuOpen || !modelPicker || !modelMenu) return;
-    if (modelPicker.contains(t)) return;
-    if (modelMenu.contains(t)) return;
-    closeModelMenu();
+    if (MODEL_SELECTION_UI_ENABLED && modelMenuOpen && modelPicker && modelMenu) {
+      if (!modelPicker.contains(t) && !modelMenu.contains(t)) {
+        closeModelMenu();
+      }
+    }
   },
   true
 );
@@ -1309,7 +1316,7 @@ document.addEventListener('keydown', (e) => {
       closeSkillMenu();
       return;
     }
-    if (modelMenuOpen) {
+    if (MODEL_SELECTION_UI_ENABLED && modelMenuOpen) {
       e.preventDefault();
       closeModelMenu();
       return;
@@ -1341,13 +1348,11 @@ function pushContentHeight() {
   // No-op: modal is now a static 500px height
 }
 
-if (typeof ResizeObserver !== 'undefined') {
-  if (modelMenu) {
-    const rom = new ResizeObserver(() => {
-      if (modelMenuOpen) syncModelMenuWrapPadding();
-    });
-    rom.observe(modelMenu);
-  }
+if (MODEL_SELECTION_UI_ENABLED && typeof ResizeObserver !== 'undefined' && modelMenu) {
+  const rom = new ResizeObserver(() => {
+    if (modelMenuOpen) syncModelMenuWrapPadding();
+  });
+  rom.observe(modelMenu);
 }
 window.addEventListener('load', () => {
   syncPromptHeight();

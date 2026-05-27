@@ -732,7 +732,12 @@ ipcMain.handle('remove-recent-folder', (_event, folder) => {
   }
 });
 
-const FALLBACK_MODEL_LIST = [{ id: 'composer-2', displayName: 'Composer 2', description: '' }];
+/** @deprecated Set true to restore persisted model selection from ~/.cursorcats/model.json */
+const MODEL_SELECTION_UI_ENABLED = false;
+const DEFAULT_MODEL_ID = 'composer-2.5';
+const FALLBACK_MODEL_LIST = [
+  { id: DEFAULT_MODEL_ID, displayName: 'Composer 2.5', description: '' },
+];
 
 /**
  * @param {unknown} raw
@@ -899,6 +904,9 @@ ipcMain.handle('list-models', async () => {
 });
 
 ipcMain.handle('get-selected-model', () => {
+  if (!MODEL_SELECTION_UI_ENABLED) {
+    return { id: DEFAULT_MODEL_ID };
+  }
   try {
     const file = getModelSelectionPath();
     if (fs.existsSync(file)) {
@@ -910,10 +918,11 @@ ipcMain.handle('get-selected-model', () => {
   } catch (e) {
     // ignore
   }
-  return null;
+  return { id: DEFAULT_MODEL_ID };
 });
 
 ipcMain.handle('set-selected-model', (_event, modelId) => {
+  if (!MODEL_SELECTION_UI_ENABLED) return;
   const id = typeof modelId === 'string' ? modelId.trim() : '';
   if (!id) return;
   try {
@@ -1055,10 +1064,13 @@ ipcMain.on('new-cat-submit', (_event, payload) => {
     const purpose = String(payload.prompt || '').trim();
     if (!purpose) return;
     const intervalMs = catAgents.DEFAULT_INTERVAL_MS;
-    const modelRaw = payload && payload.model;
-    const modelId =
-      typeof modelRaw === 'string' && modelRaw.trim() ? modelRaw.trim() : undefined;
-    if (modelId) {
+    const modelId = MODEL_SELECTION_UI_ENABLED
+      ? (() => {
+          const modelRaw = payload && payload.model;
+          return typeof modelRaw === 'string' && modelRaw.trim() ? modelRaw.trim() : undefined;
+        })()
+      : DEFAULT_MODEL_ID;
+    if (MODEL_SELECTION_UI_ENABLED && modelId) {
       try {
         const file = getModelSelectionPath();
         fs.writeFileSync(file, JSON.stringify({ id: modelId }, null, 2), 'utf8');
@@ -1105,10 +1117,13 @@ ipcMain.on('new-cat-submit', (_event, payload) => {
   }
 
   const catId = randomUUID();
-  const modelRaw = payload && payload.model;
-  const modelId =
-    typeof modelRaw === 'string' && modelRaw.trim() ? modelRaw.trim() : null;
-  if (modelId) {
+  const modelId = MODEL_SELECTION_UI_ENABLED
+    ? (() => {
+        const modelRaw = payload && payload.model;
+        return typeof modelRaw === 'string' && modelRaw.trim() ? modelRaw.trim() : null;
+      })()
+    : DEFAULT_MODEL_ID;
+  if (MODEL_SELECTION_UI_ENABLED && modelId) {
     try {
       const file = getModelSelectionPath();
       fs.writeFileSync(file, JSON.stringify({ id: modelId }, null, 2), 'utf8');
@@ -1160,7 +1175,7 @@ ipcMain.on('new-cat-submit', (_event, payload) => {
       catId,
       folder: payload.folder,
       prompt: payload.prompt,
-      model: modelId || undefined,
+      model: modelId || DEFAULT_MODEL_ID,
       runtime,
       cloudRepo,
       skills,
